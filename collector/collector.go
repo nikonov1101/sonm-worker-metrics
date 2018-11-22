@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -58,7 +59,7 @@ func (m *metricsLoader) Metrics(ctx context.Context, addr common.Address) (map[s
 		return nil, fmt.Errorf("failed to obtain metrics: %v", err)
 	}
 
-	return response.GetMetrics(), nil
+	return m.addPercentFields(response.GetMetrics()), nil
 }
 
 func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (*sonm.StatusReply, error) {
@@ -88,4 +89,12 @@ func (m *metricsLoader) workerClient(ctx context.Context, addr common.Address) (
 	}
 
 	return sonm.NewWorkerManagementClient(cc), nil
+}
+
+// addPercentFields calculates percent values for absolute values such as total/free memory in bytes,
+// then appends it to the whole metrics set.
+func (m *metricsLoader) addPercentFields(data map[string]float64) map[string]float64 {
+	data[sonm.MetricsKeyDiskFreePercent] = 1 - (data[sonm.MetricsKeyDiskFree] / data[sonm.MetricsKeyDiskTotal])
+	data[sonm.MetricsKeyRAMFreePercent] = 1 - (data[sonm.MetricsKeyRAMFree] / data[sonm.MetricsKeyRAMTotal])
+	return data
 }
