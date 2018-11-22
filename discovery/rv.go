@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sonm-io/core/insonmnia/auth"
@@ -47,6 +48,9 @@ func NewRendezvousDiscovery(ctx context.Context, log *zap.Logger, creds credenti
 }
 
 func (m *rvDiscovery) List(ctx context.Context) ([]common.Address, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	state, err := m.rendezvous.Info(ctx, &sonm.Empty{})
 	if err != nil {
 		return nil, err
