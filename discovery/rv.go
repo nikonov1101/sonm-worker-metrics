@@ -12,7 +12,6 @@ import (
 	"github.com/sonm-io/core/util"
 	"github.com/sonm-io/core/util/xgrpc"
 	"go.uber.org/zap"
-	"google.golang.org/grpc/credentials"
 )
 
 // Discoverer provides a list of targets to monitor
@@ -25,7 +24,7 @@ type rvDiscovery struct {
 	rendezvous sonm.RendezvousClient
 }
 
-func NewRendezvousDiscovery(ctx context.Context, log *zap.Logger, creds credentials.TransportCredentials, nppCfg npp.Config) (Discoverer, error) {
+func NewRendezvousDiscovery(ctx context.Context, log *zap.Logger, creds *xgrpc.TransportCredentials, nppCfg npp.Config) (Discoverer, error) {
 	rvEthAddr, err := nppCfg.Rendezvous.Endpoints[0].ETH() // TODO(sshaman1101): wtf?
 	if err != nil {
 		return nil, err

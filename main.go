@@ -15,6 +15,7 @@ import (
 	"github.com/sonm-io/core/toolz/metrics-collector/discovery"
 	"github.com/sonm-io/core/toolz/metrics-collector/exporter"
 	"github.com/sonm-io/core/util"
+	"github.com/sonm-io/core/util/xgrpc"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/sync/errgroup"
@@ -58,7 +59,7 @@ func main() {
 	if err != nil {
 		log.Fatal("failed to create certificate rotator")
 	}
-	creds := util.NewTLS(tlsConfig)
+	creds := xgrpc.NewTransportCredentials(tlsConfig)
 
 	exporto, err := exporter.NewExporter(&cfg.Exporter)
 	if err != nil {

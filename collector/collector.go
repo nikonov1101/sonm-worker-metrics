@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -22,7 +21,7 @@ type metricsLoader struct {
 	credentials credentials.TransportCredentials
 }
 
-func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds credentials.TransportCredentials, cfg npp.Config) (*metricsLoader, error) {
+func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.TransportCredentials, cfg npp.Config) (*metricsLoader, error) {
 	nppDialerOptions := []npp.Option{
 		npp.WithRendezvous(cfg.Rendezvous, creds),
 		npp.WithRelay(cfg.Relay, key),
