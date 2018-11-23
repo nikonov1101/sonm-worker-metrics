@@ -61,7 +61,11 @@ func (m *metricsLoader) Metrics(ctx context.Context, addr common.Address) (map[s
 	return m.addPercentFields(response.GetMetrics()), nil
 }
 
-func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (*sonm.StatusReply, error) {
+func (m *metricsLoader) TestMetrics(ctx context.Context, addr common.Address) (map[string]float64, error) {
+	return map[string]float64{}, nil
+}
+
+func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (map[string]string, error) {
 	m.log.Sugar().Infof("start collecting status from %s", addr.Hex())
 
 	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
@@ -72,7 +76,15 @@ func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (*sonm.
 		return nil, fmt.Errorf("failed to create worker client: %v", err)
 	}
 
-	return client.Status(ctx, &sonm.Empty{})
+	status, err := client.Status(ctx, &sonm.Empty{})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]string{
+		"version": status.GetVersion(),
+		"geo":     status.GetGeo().GetCountry().GetIsoCode(),
+	}, nil
 }
 
 func (m *metricsLoader) workerClient(ctx context.Context, addr common.Address) (sonm.WorkerManagementClient, error) {

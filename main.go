@@ -104,20 +104,27 @@ x1:
 
 			for _, worker := range workers {
 				go func(w common.Address) {
-					s, err := collectro.Status(ctx, w)
+					noStatus := false
+					noMetrics := false
+
+					status, err := collectro.Status(ctx, w)
 					if err != nil {
-						// probably we should export smth like "failed: true" in such case
 						log.Warn("failed to collect status", zap.Stringer("worker", w), zap.Error(err))
-						return
+						noStatus = true
 					}
 
-					err = exporto.Write(w, map[string]float64{},
-						map[string]string{
-							"version": s.GetVersion(),
-							"geo":     s.GetGeo().GetCountry().GetIsoCode(),
-						})
-
+					metrics, err := collectro.TestMetrics(ctx, w)
 					if err != nil {
+						log.Warn("failed to collect metrics", zap.Stringer("worker", w), zap.Error(err))
+						noMetrics = true
+					}
+
+					if noMetrics || noStatus {
+						metrics = map[string]float64{"error": 1}
+						status = map[string]string{}
+					}
+
+					if err := exporto.Write(w, metrics, status); err != nil {
 						log.Warn("failed to write metrics", zap.Stringer("worker", w), zap.Error(err))
 					}
 				}(worker)
