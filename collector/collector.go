@@ -12,6 +12,7 @@ import (
 	"github.com/sonm-io/core/proto"
 	"github.com/sonm-io/core/util/xgrpc"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
@@ -48,10 +49,13 @@ func (m *metricsLoader) Metrics(ctx context.Context, addr common.Address) (map[s
 	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
 	defer cancel()
 
-	client, err := m.workerClient(ctx, addr)
+	cc, err := m.workerClient(ctx, addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create worker client: %v", err)
+		return nil, fmt.Errorf("failed to create client connetion: %v", err)
 	}
+
+	defer m.closeConn(cc)
+	client := sonm.NewWorkerManagementClient(cc)
 
 	response, err := client.Metrics(ctx, &sonm.WorkerMetricsRequest{})
 	if err != nil {
@@ -71,10 +75,13 @@ func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (map[st
 	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
 	defer cancel()
 
-	client, err := m.workerClient(ctx, addr)
+	cc, err := m.workerClient(ctx, addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create worker client: %v", err)
+		return nil, fmt.Errorf("failed to create client connetion: %v", err)
 	}
+
+	defer m.closeConn(cc)
+	client := sonm.NewWorkerManagementClient(cc)
 
 	status, err := client.Status(ctx, &sonm.Empty{})
 	if err != nil {
@@ -87,19 +94,14 @@ func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (map[st
 	}, nil
 }
 
-func (m *metricsLoader) workerClient(ctx context.Context, addr common.Address) (sonm.WorkerManagementClient, error) {
+func (m *metricsLoader) workerClient(ctx context.Context, addr common.Address) (*grpc.ClientConn, error) {
 	ethAddr := auth.NewETHAddr(addr)
 	conn, err := m.dialer.DialContext(ctx, *ethAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	cc, err := xgrpc.NewClient(ctx, "-", auth.NewWalletAuthenticator(m.credentials, addr), xgrpc.WithConn(conn))
-	if err != nil {
-		return nil, err
-	}
-
-	return sonm.NewWorkerManagementClient(cc), nil
+	return xgrpc.NewClient(ctx, "-", auth.NewWalletAuthenticator(m.credentials, addr), xgrpc.WithConn(conn))
 }
 
 // addPercentFields calculates percent values for absolute values such as total/free memory in bytes,
@@ -108,4 +110,10 @@ func (m *metricsLoader) addPercentFields(data map[string]float64) map[string]flo
 	data[sonm.MetricsKeyDiskFreePercent] = 1 - (data[sonm.MetricsKeyDiskFree] / data[sonm.MetricsKeyDiskTotal])
 	data[sonm.MetricsKeyRAMFreePercent] = 1 - (data[sonm.MetricsKeyRAMFree] / data[sonm.MetricsKeyRAMTotal])
 	return data
+}
+
+func (m *metricsLoader) closeConn(cc *grpc.ClientConn) {
+	if err := cc.Close(); err != nil {
+		m.log.Warn("clientConn close failed with error", zap.Error(err))
+	}
 }
