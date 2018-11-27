@@ -8,8 +8,8 @@ GOARCH ?= ${HOSTARCH}
 OS_ARCH := $(GOOS)_$(GOARCH)$(EXE)
 
 run:
-	${GO} run main.go
+	${GO} run ./cmd/collector/main.go
 
 build:
 	@echo "+ $@"
-	${GO} build -tags "nocgo" -o target/exporter_$(OS_ARCH)
+	${GO} build -tags "nocgo" -o target/collector_$(OS_ARCH) ./cmd/collector/

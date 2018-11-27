@@ -30,7 +30,7 @@ type Config struct {
 var configPath string
 
 func init() {
-	flag.StringVar(&configPath, "config", "exporter.yaml", "path to config file")
+	flag.StringVar(&configPath, "config", "collector.yaml", "path to config file")
 	flag.Parse()
 }
 
