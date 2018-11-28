@@ -45,16 +45,9 @@ func NewExporter(cfg *Config) (*Exporter, error) {
 }
 
 func (m *Exporter) Write(pointName string, worker common.Address, metrics map[string]float64, extra map[string]string) error {
-	batch, err := client.NewBatchPoints(client.BatchPointsConfig{
-		Database:  m.dbName,
-		Precision: "s",
-	})
-	if err != nil {
-		return err
-	}
-
 	tags := map[string]string{"worker": worker.Hex()}
 	fields := map[string]interface{}{}
+
 	for k, v := range metrics {
 		fields[k] = v
 	}
@@ -62,7 +55,20 @@ func (m *Exporter) Write(pointName string, worker common.Address, metrics map[st
 		fields[k] = v
 	}
 
-	point, err := client.NewPoint(pointName, tags, fields, time.Now())
+	return m.WriteRaw(pointName, tags, fields)
+}
+
+func (m *Exporter) WriteRaw(pointName string, tags map[string]string, values map[string]interface{}) error {
+	batch, err := client.NewBatchPoints(client.BatchPointsConfig{
+		Database:  m.dbName,
+		Precision: "s",
+	})
+
+	if err != nil {
+		return err
+	}
+
+	point, err := client.NewPoint(pointName, tags, values, time.Now())
 	if err != nil {
 		return err
 	}
