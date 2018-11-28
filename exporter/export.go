@@ -15,18 +15,18 @@ type Config struct {
 	DBName string `yaml:"db_name"`
 }
 
-type exporter struct {
+type Exporter struct {
 	cli    client.Client
 	dbName string
 }
 
-func (m *exporter) Close() {
+func (m *Exporter) Close() {
 	if m.cli != nil {
 		m.cli.Close()
 	}
 }
 
-func NewExporter(cfg *Config) (*exporter, error) {
+func NewExporter(cfg *Config) (*Exporter, error) {
 	cli, err := client.NewHTTPClient(client.HTTPConfig{
 		Addr:    cfg.DBAddr,
 		Timeout: influxClientDefaultTimeout,
@@ -36,7 +36,7 @@ func NewExporter(cfg *Config) (*exporter, error) {
 		return nil, err
 	}
 
-	e := &exporter{
+	e := &Exporter{
 		cli:    cli,
 		dbName: cfg.DBName,
 	}
@@ -44,7 +44,7 @@ func NewExporter(cfg *Config) (*exporter, error) {
 	return e, nil
 }
 
-func (m *exporter) Write(pointName string, worker common.Address, metrics map[string]float64, extra map[string]string) error {
+func (m *Exporter) Write(pointName string, worker common.Address, metrics map[string]float64, extra map[string]string) error {
 	batch, err := client.NewBatchPoints(client.BatchPointsConfig{
 		Database:  m.dbName,
 		Precision: "s",
@@ -71,7 +71,7 @@ func (m *exporter) Write(pointName string, worker common.Address, metrics map[st
 	return m.cli.Write(batch)
 }
 
-func (m *exporter) Read(cmd string) ([]client.Result, error) {
+func (m *Exporter) Read(cmd string) ([]client.Result, error) {
 	q := client.Query{
 		Command:  cmd,
 		Database: m.dbName,
