@@ -1,0 +1,13 @@
+[Unit]
+Description=SONM metrics collector
+Wants=network-online.target
+After=network.target network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/sonm/
+ExecStart=/srv/sonm/collector_linux_x86_64 --config=/srv/sonm/collector.yaml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
