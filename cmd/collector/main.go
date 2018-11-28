@@ -27,6 +27,10 @@ type Config struct {
 	Eth      accounts.EthConfig `yaml:"ethereum"`
 }
 
+const (
+	metricsPointName = "worker_metrics"
+)
+
 var configPath string
 
 func init() {
@@ -124,7 +128,7 @@ x1:
 						status = map[string]string{}
 					}
 
-					if err := exporto.Write(w, metrics, status); err != nil {
+					if err := exporto.Write(metricsPointName, w, metrics, status); err != nil {
 						log.Warn("failed to write metrics", zap.Stringer("worker", w), zap.Error(err))
 					}
 				}(worker)

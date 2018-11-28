@@ -1,6 +1,7 @@
 package exporter
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -10,15 +11,13 @@ import (
 const influxClientDefaultTimeout = 10 * time.Second
 
 type Config struct {
-	DBAddr        string `yaml:"db_addr"`
-	DBName        string `yaml:"db_name"`
-	DataPointName string `yaml:"data_point_name" default:"worker_metrics"`
+	DBAddr string `yaml:"db_addr"`
+	DBName string `yaml:"db_name"`
 }
 
 type exporter struct {
-	cli       client.Client
-	dbName    string
-	pointName string
+	cli    client.Client
+	dbName string
 }
 
 func (m *exporter) Close() {
@@ -38,15 +37,14 @@ func NewExporter(cfg *Config) (*exporter, error) {
 	}
 
 	e := &exporter{
-		cli:       cli,
-		dbName:    cfg.DBName,
-		pointName: cfg.DataPointName,
+		cli:    cli,
+		dbName: cfg.DBName,
 	}
 
 	return e, nil
 }
 
-func (m *exporter) Write(worker common.Address, metrics map[string]float64, extra map[string]string) error {
+func (m *exporter) Write(pointName string, worker common.Address, metrics map[string]float64, extra map[string]string) error {
 	batch, err := client.NewBatchPoints(client.BatchPointsConfig{
 		Database:  m.dbName,
 		Precision: "s",
@@ -64,11 +62,29 @@ func (m *exporter) Write(worker common.Address, metrics map[string]float64, extr
 		fields[k] = v
 	}
 
-	point, err := client.NewPoint(m.pointName, tags, fields, time.Now())
+	point, err := client.NewPoint(pointName, tags, fields, time.Now())
 	if err != nil {
 		return err
 	}
 
 	batch.AddPoint(point)
 	return m.cli.Write(batch)
+}
+
+func (m *exporter) Read(cmd string) ([]client.Result, error) {
+	q := client.Query{
+		Command:  cmd,
+		Database: m.dbName,
+	}
+
+	response, err := m.cli.Query(q)
+	if err != nil {
+		return nil, fmt.Errorf("failed to run query: %v", err)
+	}
+
+	if response.Error() != nil {
+		return nil, fmt.Errorf("query failed with the following error: %v", response.Error())
+	}
+
+	return response.Results, nil
 }

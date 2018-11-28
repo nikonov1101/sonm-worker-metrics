@@ -4,8 +4,6 @@ exporter:
   db_addr: "http://localhost:8086"
   # name of the database to store metrics
   db_name: "sonm"
-  # name of the data point with metrics
-  data_point_name: "worker_metrics"
 
 # Settings for Ethereum keys
 ethereum: &ethereum
