@@ -78,7 +78,7 @@ func main() {
 
 	collectro, err := collector.NewMetricsCollector(log, pkey, creds, cfg.NPP)
 	if err != nil {
-		log.Fatal("failef to create collector service", zap.Error(err))
+		log.Fatal("failed to create collector service", zap.Error(err))
 	}
 
 	wg, ctx := errgroup.WithContext(ctx)
