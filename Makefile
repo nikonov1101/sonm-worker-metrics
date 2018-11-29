@@ -7,9 +7,13 @@ GOOS ?= ${HOSTOS}
 GOARCH ?= ${HOSTARCH}
 OS_ARCH := $(GOOS)_$(GOARCH)$(EXE)
 
-run:
-	${GO} run ./cmd/collector/main.go
 
-build:
+build: build/collector build/aggregator
+
+build/collector:
 	@echo "+ $@"
 	${GO} build -tags "nocgo" -o target/collector_$(OS_ARCH) ./cmd/collector/
+
+build/aggregator:
+	@echo "+ $@"
+	${GO} build -tags "nocgo" -o target/aggregator_$(OS_ARCH) ./cmd/aggregator/
