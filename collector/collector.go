@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/blang/semver"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sonm-io/core/insonmnia/auth"
 	"github.com/sonm-io/core/insonmnia/npp"
@@ -21,6 +22,8 @@ type metricsLoader struct {
 	dialer      *npp.Dialer
 	credentials credentials.TransportCredentials
 }
+
+var desiredVersion = semver.Version{Major: 0, Minor: 4, Patch: 19}
 
 func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.TransportCredentials, cfg npp.Config) (*metricsLoader, error) {
 	nppDialerOptions := []npp.Option{
@@ -43,7 +46,12 @@ func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.Tr
 	return m, nil
 }
 
-func (m *metricsLoader) Metrics(ctx context.Context, addr common.Address) (map[string]float64, error) {
+func (m *metricsLoader) Metrics(ctx context.Context, addr common.Address, version string) (map[string]float64, error) {
+	if !m.compareVersions(version) {
+		m.log.Debug("worker does not support metrics collection", zap.String("addr", addr.String()), zap.String("version", version))
+		return map[string]float64{}, nil
+	}
+
 	m.log.Sugar().Infof("start collecting metrics from %s", addr.Hex())
 
 	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
@@ -116,4 +124,17 @@ func (m *metricsLoader) closeConn(cc *grpc.ClientConn) {
 	if err := cc.Close(); err != nil {
 		m.log.Warn("clientConn close failed with error", zap.Error(err))
 	}
+}
+
+func (m *metricsLoader) compareVersions(version string) bool {
+	v, err := semver.ParseTolerant(version)
+	if err != nil {
+		m.log.Warn("failed to parse worker version", zap.String("raw", version), zap.Error(err))
+		return false
+	}
+
+	v.Build = nil
+	v.Pre = nil
+
+	return v.Compare(desiredVersion) >= 0
 }

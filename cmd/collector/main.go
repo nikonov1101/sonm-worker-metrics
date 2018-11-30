@@ -108,8 +108,7 @@ x1:
 
 			for _, worker := range workers {
 				go func(w common.Address) {
-					noStatus := false
-					noMetrics := false
+					var noStatus, noMetrics bool
 
 					status, err := collectro.Status(ctx, w)
 					if err != nil {
@@ -117,10 +116,13 @@ x1:
 						noStatus = true
 					}
 
-					metrics, err := collectro.TestMetrics(ctx, w)
-					if err != nil {
-						log.Warn("failed to collect metrics", zap.Stringer("worker", w), zap.Error(err))
-						noMetrics = true
+					metrics := make(map[string]float64)
+					if !noStatus {
+						metrics, err = collectro.Metrics(ctx, w, status["version"])
+						if err != nil {
+							log.Warn("failed to collect metrics", zap.Stringer("worker", w), zap.Error(err))
+							noMetrics = true
+						}
 					}
 
 					if noMetrics || noStatus {
