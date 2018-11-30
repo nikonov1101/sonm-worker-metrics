@@ -115,8 +115,8 @@ func (m *metricsLoader) workerClient(ctx context.Context, addr common.Address) (
 // addPercentFields calculates percent values for absolute values such as total/free memory in bytes,
 // then appends it to the whole metrics set.
 func (m *metricsLoader) addPercentFields(data map[string]float64) map[string]float64 {
-	data[sonm.MetricsKeyDiskFreePercent] = 1 - (data[sonm.MetricsKeyDiskFree] / data[sonm.MetricsKeyDiskTotal])
-	data[sonm.MetricsKeyRAMFreePercent] = 1 - (data[sonm.MetricsKeyRAMFree] / data[sonm.MetricsKeyRAMTotal])
+	data[sonm.MetricsKeyDiskFreePercent] = (1 - (data[sonm.MetricsKeyDiskFree] / data[sonm.MetricsKeyDiskTotal])) * 100
+	data[sonm.MetricsKeyRAMFreePercent] = (1 - (data[sonm.MetricsKeyRAMFree] / data[sonm.MetricsKeyRAMTotal])) * 100
 	return data
 }
 
