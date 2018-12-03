@@ -7,7 +7,7 @@ import (
 
 	"github.com/influxdata/influxdb/client/v2"
 	"github.com/influxdata/influxdb/models"
-	"github.com/sonm-io/core/toolz/metrics-collector/exporter"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/exporter"
 	"github.com/sonm-io/core/util"
 	"go.uber.org/zap"
 )
