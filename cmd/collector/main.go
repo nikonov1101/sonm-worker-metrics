@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/sonm-io/core/util/debug"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -16,6 +15,7 @@ import (
 	"github.com/sonm-io/core/toolz/sonm-monitoring/discovery"
 	"github.com/sonm-io/core/toolz/sonm-monitoring/exporter"
 	"github.com/sonm-io/core/util"
+	"github.com/sonm-io/core/util/debug"
 	"github.com/sonm-io/core/util/xgrpc"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

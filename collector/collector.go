@@ -47,13 +47,14 @@ func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.Tr
 }
 
 func (m *metricsLoader) Metrics(ctx context.Context, addr common.Address, version string) (map[string]float64, error) {
+	log := m.log.Named("metrics").With(zap.String("worker", addr.Hex()))
+
 	if !m.compareVersions(version) {
-		m.log.Debug("worker does not support metrics collection", zap.String("addr", addr.String()), zap.String("version", version))
+		log.Warn("worker does not support metrics collection", zap.String("version", version))
 		return map[string]float64{}, nil
 	}
 
-	m.log.Sugar().Infof("start collecting metrics from %s", addr.Hex())
-
+	log.Info("start collecting metrics")
 	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
 	defer cancel()
 
@@ -70,6 +71,12 @@ func (m *metricsLoader) Metrics(ctx context.Context, addr common.Address, versio
 		return nil, fmt.Errorf("failed to obtain metrics: %v", err)
 	}
 
+	if len(response.GetMetrics()) == 0 {
+		log.Warn("empty metrics set returned")
+		return map[string]float64{}, nil
+	}
+
+	log.Info("metrics successfully collect")
 	return m.addPercentFields(response.GetMetrics()), nil
 }
 
@@ -78,7 +85,8 @@ func (m *metricsLoader) TestMetrics(ctx context.Context, addr common.Address) (m
 }
 
 func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (map[string]string, error) {
-	m.log.Sugar().Infof("start collecting status from %s", addr.Hex())
+	log := m.log.Named("status").With(zap.String("worker", addr.Hex()))
+	log.Info("start collecting status")
 
 	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
 	defer cancel()
@@ -95,6 +103,9 @@ func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (map[st
 	if err != nil {
 		return nil, err
 	}
+
+	log.Info("status successfully collect ", zap.String("ver", status.GetVersion()),
+		zap.String("loc", status.GetGeo().GetCountry().GetIsoCode()))
 
 	return map[string]string{
 		"version": status.GetVersion(),
