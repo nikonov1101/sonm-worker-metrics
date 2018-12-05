@@ -18,6 +18,6 @@ func TestCalculatePercent(t *testing.T) {
 	}
 
 	output := ld.addPercentFields(input)
-	assert.Equal(t, 0.6, output[sonm.MetricsKeyDiskFreePercent])
-	assert.Equal(t, 0.4, output[sonm.MetricsKeyRAMFreePercent])
+	assert.Equal(t, 60., output[sonm.MetricsKeyDiskFreePercent])
+	assert.Equal(t, 40., output[sonm.MetricsKeyRAMFreePercent])
 }
