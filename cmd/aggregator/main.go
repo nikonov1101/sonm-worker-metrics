@@ -6,8 +6,8 @@ import (
 
 	"github.com/sonm-io/core/cmd"
 	"github.com/sonm-io/core/insonmnia/logging"
-	"github.com/sonm-io/core/toolz/metrics-collector/aggregator"
-	"github.com/sonm-io/core/toolz/metrics-collector/exporter"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/aggregator"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/exporter"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/sync/errgroup"

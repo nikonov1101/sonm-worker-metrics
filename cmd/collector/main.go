@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/sonm-io/core/util/debug"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -11,9 +12,9 @@ import (
 	"github.com/sonm-io/core/cmd"
 	"github.com/sonm-io/core/insonmnia/logging"
 	"github.com/sonm-io/core/insonmnia/npp"
-	"github.com/sonm-io/core/toolz/metrics-collector/collector"
-	"github.com/sonm-io/core/toolz/metrics-collector/discovery"
-	"github.com/sonm-io/core/toolz/metrics-collector/exporter"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/collector"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/discovery"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/exporter"
 	"github.com/sonm-io/core/util"
 	"github.com/sonm-io/core/util/xgrpc"
 	"go.uber.org/zap"
@@ -84,6 +85,9 @@ func main() {
 	wg, ctx := errgroup.WithContext(ctx)
 	wg.Go(func() error {
 		return cmd.WaitInterrupted(ctx)
+	})
+	wg.Go(func() error {
+		return debug.ServePProf(ctx, debug.Config{Port: 6060}, log)
 	})
 
 	log.Info("starting metrics collector")
