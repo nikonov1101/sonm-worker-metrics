@@ -72,6 +72,11 @@ func (m *aggregator) runOnce() {
 func (m *aggregator) rowsToCounters(rows []client.Result) *counters {
 	ctr := newCounters()
 	for _, row := range rows {
+		if len(row.Series) == 0 {
+			m.log.Warn("empty series found, please check wth is going on with influxdb")
+			continue
+		}
+
 		workers := m.processRow(row.Series[0])
 		for _, worker := range workers {
 			ctr.addWorker(worker)
