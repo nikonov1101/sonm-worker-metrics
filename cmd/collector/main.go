@@ -109,6 +109,9 @@ func main() {
 	tk := util.NewImmediateTicker(time.Minute)
 	defer tk.Stop()
 
+	mtk := time.NewTicker(time.Minute)
+	defer mtk.Stop()
+
 x1:
 	for {
 		select {
@@ -156,6 +159,10 @@ x1:
 						log.Warn("failed to write metrics", zap.Stringer("worker", w), zap.Error(err))
 					}
 				}(worker)
+			}
+		case <-mtk.C:
+			if err := exporto.WriteRaw("connections", nil, collectro.DialerMetrics()); err != nil {
+				log.Warn("failed to write dialer metrics", zap.Error(err))
 			}
 		}
 	}

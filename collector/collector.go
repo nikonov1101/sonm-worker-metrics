@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/blang/semver"
@@ -126,8 +127,18 @@ func (m *metricsLoader) workerClient(ctx context.Context, addr common.Address) (
 // addPercentFields calculates percent values for absolute values such as total/free memory in bytes,
 // then appends it to the whole metrics set.
 func (m *metricsLoader) addPercentFields(data map[string]float64) map[string]float64 {
-	data[sonm.MetricsKeyDiskFreePercent] = (1 - (data[sonm.MetricsKeyDiskFree] / data[sonm.MetricsKeyDiskTotal])) * 100
-	data[sonm.MetricsKeyRAMFreePercent] = (1 - (data[sonm.MetricsKeyRAMFree] / data[sonm.MetricsKeyRAMTotal])) * 100
+	disk := (1 - (data[sonm.MetricsKeyDiskFree] / data[sonm.MetricsKeyDiskTotal])) * 100
+	if math.IsInf(disk, 0) || math.IsNaN(disk) {
+		disk = 0
+	}
+
+	ram := (1 - (data[sonm.MetricsKeyRAMFree] / data[sonm.MetricsKeyRAMTotal])) * 100
+	if math.IsInf(ram, 0) || math.IsNaN(ram) {
+		disk = 0
+	}
+
+	data[sonm.MetricsKeyDiskFreePercent] = disk
+	data[sonm.MetricsKeyRAMFreePercent] = ram
 	return data
 }
 
@@ -148,4 +159,29 @@ func (m *metricsLoader) compareVersions(version string) bool {
 	v.Pre = nil
 
 	return v.Compare(desiredVersion) >= 0
+}
+
+// DialerMetrics accumulates nppDialer into influxDB-friendly format
+func (m *metricsLoader) DialerMetrics() map[string]interface{} {
+	metrics, err := m.dialer.Metrics()
+	if err != nil {
+		m.log.Warn("failed to get npp metrics", zap.Error(err))
+		return nil
+	}
+
+	x := accumulatedMetrics{}
+
+	for _, rows := range metrics {
+		for _, row := range rows {
+			if row.Metric.Counter != nil {
+				x.add(row.Name, row.Metric.Counter.GetValue())
+			}
+
+			if row.Metric.Histogram != nil {
+				x.add(row.Name, float64(row.Metric.GetHistogram().GetSampleCount()))
+			}
+		}
+	}
+
+	return x.calculatePercents().intoMapStringInterface()
 }
