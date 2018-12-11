@@ -167,7 +167,7 @@ type DialerMetrics struct {
 }
 
 func (m DialerMetrics) calculatePercents() DialerMetrics {
-	ok := m.AccumulatedMetrics["SummaryHistogram"]
+	ok := m.AccumulatedMetrics["NumAttempts"]
 	m.AccumulatedMetrics["TCPDirectPercent"] = m.AccumulatedMetrics["UsingTCPDirectHistogram"] / ok * 100.
 	m.AccumulatedMetrics["NATPercent"] = m.AccumulatedMetrics["UsingNATHistogram"] / ok * 100.
 	m.AccumulatedMetrics["QNATPercent"] = m.AccumulatedMetrics["UsingQNATHistogram"] / ok * 100.
