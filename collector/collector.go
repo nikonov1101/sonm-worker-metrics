@@ -12,6 +12,7 @@ import (
 	"github.com/sonm-io/core/insonmnia/auth"
 	"github.com/sonm-io/core/insonmnia/npp"
 	"github.com/sonm-io/core/proto"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/types"
 	"github.com/sonm-io/core/util/xgrpc"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -161,6 +162,21 @@ func (m *metricsLoader) compareVersions(version string) bool {
 	return v.Compare(desiredVersion) >= 0
 }
 
+type DialerMetrics struct {
+	types.AccumulatedMetrics
+}
+
+func (m DialerMetrics) calculatePercents() DialerMetrics {
+	ok := m.AccumulatedMetrics["SummaryHistogram"]
+	m.AccumulatedMetrics["TCPDirectPercent"] = m.AccumulatedMetrics["UsingTCPDirectHistogram"] / ok * 100.
+	m.AccumulatedMetrics["NATPercent"] = m.AccumulatedMetrics["UsingNATHistogram"] / ok * 100.
+	m.AccumulatedMetrics["QNATPercent"] = m.AccumulatedMetrics["UsingQNATHistogram"] / ok * 100.
+	m.AccumulatedMetrics["RelayPercent"] = m.AccumulatedMetrics["UsingRelayHistogram"] / ok * 100.
+	m.AccumulatedMetrics["FailedPercent"] = m.AccumulatedMetrics["NumFailed"] / ok * 100.
+
+	return m
+}
+
 // DialerMetrics accumulates nppDialer into influxDB-friendly format
 func (m *metricsLoader) DialerMetrics() map[string]interface{} {
 	metrics, err := m.dialer.Metrics()
@@ -169,19 +185,18 @@ func (m *metricsLoader) DialerMetrics() map[string]interface{} {
 		return nil
 	}
 
-	x := accumulatedMetrics{}
-
+	x := DialerMetrics{AccumulatedMetrics: types.AccumulatedMetrics{}}
 	for _, rows := range metrics {
 		for _, row := range rows {
 			if row.Metric.Counter != nil {
-				x.add(row.Name, row.Metric.Counter.GetValue())
+				x.Insert(row.Name, row.Metric.Counter.GetValue())
 			}
 
 			if row.Metric.Histogram != nil {
-				x.add(row.Name, float64(row.Metric.GetHistogram().GetSampleCount()))
+				x.Insert(row.Name, float64(row.Metric.GetHistogram().GetSampleCount()))
 			}
 		}
 	}
 
-	return x.calculatePercents().intoMapStringInterface()
+	return x.calculatePercents().Unwrap()
 }
