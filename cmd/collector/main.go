@@ -7,10 +7,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jinzhu/configor"
+	"github.com/opentracing/opentracing-go"
 	"github.com/sonm-io/core/accounts"
 	"github.com/sonm-io/core/cmd"
 	"github.com/sonm-io/core/insonmnia/logging"
 	"github.com/sonm-io/core/insonmnia/npp"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/aggregator"
 	"github.com/sonm-io/core/toolz/sonm-monitoring/collector"
 	"github.com/sonm-io/core/toolz/sonm-monitoring/discovery"
 	"github.com/sonm-io/core/toolz/sonm-monitoring/exporter"
@@ -40,6 +42,8 @@ func init() {
 }
 
 func main() {
+	opentracing.SetGlobalTracer(xgrpc.NewBasicTracer())
+
 	log, err := logging.BuildLogger(logging.Config{Output: "stdout", Level: logging.NewLevel(zapcore.DebugLevel)})
 	if err != nil {
 		panic(err)
@@ -66,17 +70,24 @@ func main() {
 	}
 	creds := xgrpc.NewTransportCredentials(tlsConfig)
 
+	// exporto is InfluxDB adapter
 	exporto, err := exporter.NewExporter(&cfg.Exporter)
 	if err != nil {
 		log.Fatal("failed to create exporter instance", zap.Error(err))
 	}
 	defer exporto.Close()
 
+	// aggregator reading data from InfluxDB and aggregating
+	// various metrics
+	aggr := aggregator.NewAggregator(log, exporto)
+
+	// discovery service is obtaining info about online peers in SONM network
 	disco, err := discovery.NewRendezvousDiscovery(ctx, log, creds, cfg.NPP)
 	if err != nil {
 		log.Fatal("failed to create discovery service", zap.Error(err))
 	}
 
+	// collector querying peers for various hardware (and software in closest future) metrics
 	collectro, err := collector.NewMetricsCollector(log, pkey, creds, cfg.NPP)
 	if err != nil {
 		log.Fatal("failed to create collector service", zap.Error(err))
@@ -87,11 +98,14 @@ func main() {
 		return cmd.WaitInterrupted(ctx)
 	})
 	wg.Go(func() error {
-		return debug.ServePProf(ctx, debug.Config{Port: 6060}, log)
+		return debug.ServePProf(ctx, debug.Config{Port: 6065}, log)
+	})
+	wg.Go(func() error {
+		aggr.Run(ctx)
+		return nil
 	})
 
 	log.Info("starting metrics collector")
-
 	tk := util.NewImmediateTicker(time.Minute)
 	defer tk.Stop()
 
@@ -102,6 +116,7 @@ x1:
 			log.Warn("context done", zap.Error(ctx.Err()))
 			break x1
 		case <-tk.C:
+			// load peer list to monitor
 			workers, err := disco.List(ctx)
 			if err != nil {
 				log.Warn("failed to get workers from discovery", zap.Error(err))
@@ -109,11 +124,12 @@ x1:
 			}
 
 			log.Info("workers collected", zap.Int("count", len(workers)))
-
+			// loop over peers, connect via NPP and collect metrics
 			for _, worker := range workers {
 				go func(w common.Address) {
 					var noStatus, noMetrics bool
 
+					// the `status` handle returns version and country
 					status, err := collectro.Status(ctx, w)
 					if err != nil {
 						log.Warn("failed to collect status", zap.Stringer("worker", w), zap.Error(err))
@@ -122,6 +138,7 @@ x1:
 
 					metrics := make(map[string]float64)
 					if !noStatus {
+						// we can ask for metrics if worker is online and version supports metrics
 						metrics, err = collectro.Metrics(ctx, w, status["version"])
 						if err != nil {
 							log.Warn("failed to collect metrics", zap.Stringer("worker", w), zap.Error(err))
@@ -134,6 +151,7 @@ x1:
 						status = map[string]string{}
 					}
 
+					// write scrapped info into influxDB for alerting and future processing
 					if err := exporto.Write(metricsPointName, w, metrics, status); err != nil {
 						log.Warn("failed to write metrics", zap.Stringer("worker", w), zap.Error(err))
 					}

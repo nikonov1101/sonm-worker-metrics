@@ -2,7 +2,6 @@ package aggregator
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/influxdata/influxdb/client/v2"
@@ -17,17 +16,12 @@ type aggregator struct {
 	exporter *exporter.Exporter
 }
 
-func NewAggregator(log *zap.Logger, cfg *exporter.Config) (*aggregator, error) {
-	exp, err := exporter.NewExporter(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build exported instance: %v", err)
-	}
-
-	return &aggregator{log: log, exporter: exp}, nil
+func NewAggregator(log *zap.Logger, exp *exporter.Exporter) *aggregator {
+	return &aggregator{log: log, exporter: exp}
 }
 
 func (m *aggregator) Run(ctx context.Context) {
-	tk := util.NewImmediateTicker(5 * time.Minute)
+	tk := util.NewImmediateTicker(3 * time.Minute)
 	defer tk.Stop()
 
 	m.log.Info("aggregator started")
