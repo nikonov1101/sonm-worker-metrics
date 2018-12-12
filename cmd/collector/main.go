@@ -120,10 +120,14 @@ x1:
 			break x1
 		case <-tk.C:
 			// load peer list to monitor
-			workers, err := disco.List(ctx)
+			workers, protocols, err := disco.List(ctx)
 			if err != nil {
 				log.Warn("failed to get workers from discovery", zap.Error(err))
 				continue
+			}
+
+			if err := exporto.WriteRaw("protocols", nil, protocols); err != nil {
+				log.Warn("failed to write protocols metrics", zap.Error(err))
 			}
 
 			log.Info("workers collected", zap.Int("count", len(workers)))
