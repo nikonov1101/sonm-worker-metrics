@@ -171,6 +171,6 @@ x1:
 		}
 	}
 
-	log.Debug("termination")
-	wg.Wait()
+	err = wg.Wait()
+	log.Debug("termination", zap.Error(err))
 }
