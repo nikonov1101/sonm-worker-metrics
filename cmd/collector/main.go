@@ -16,6 +16,7 @@ import (
 	"github.com/sonm-io/core/toolz/sonm-monitoring/collector"
 	"github.com/sonm-io/core/toolz/sonm-monitoring/discovery"
 	"github.com/sonm-io/core/toolz/sonm-monitoring/exporter"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/types"
 	"github.com/sonm-io/core/util"
 	"github.com/sonm-io/core/util/debug"
 	"github.com/sonm-io/core/util/xgrpc"
@@ -42,7 +43,7 @@ func init() {
 }
 
 func main() {
-	opentracing.SetGlobalTracer(xgrpc.NewBasicTracer())
+	opentracing.SetGlobalTracer(types.NewBasicTracer())
 
 	log, err := logging.BuildLogger(logging.Config{Output: "stdout", Level: logging.NewLevel(zapcore.DebugLevel)})
 	if err != nil {
