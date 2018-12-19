@@ -19,6 +19,10 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+const (
+	connTimeoutSec = 50
+)
+
 type metricsLoader struct {
 	log         *zap.Logger
 	dialer      *npp.Dialer
@@ -57,7 +61,7 @@ func (m *metricsLoader) Metrics(ctx context.Context, addr common.Address, versio
 	}
 
 	log.Info("start collecting metrics")
-	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, connTimeoutSec*time.Second)
 	defer cancel()
 
 	cc, err := m.workerClient(ctx, addr)
@@ -90,7 +94,7 @@ func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (map[st
 	log := m.log.Named("status").With(zap.String("worker", addr.Hex()))
 	log.Info("start collecting status")
 
-	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, connTimeoutSec*time.Second)
 	defer cancel()
 
 	cc, err := m.workerClient(ctx, addr)
@@ -166,13 +170,21 @@ type DialerMetrics struct {
 	types.AccumulatedMetrics
 }
 
+func нол(v float64) bool {
+	return v < 1e-6
+}
+
 func (m DialerMetrics) calculatePercents() DialerMetrics {
-	ok := m.AccumulatedMetrics["NumAttempts"]
-	m.AccumulatedMetrics["TCPDirectPercent"] = m.AccumulatedMetrics["UsingTCPDirectHistogram"] / ok * 100.
-	m.AccumulatedMetrics["NATPercent"] = m.AccumulatedMetrics["UsingNATHistogram"] / ok * 100.
-	m.AccumulatedMetrics["QNATPercent"] = m.AccumulatedMetrics["UsingQNATHistogram"] / ok * 100.
-	m.AccumulatedMetrics["RelayPercent"] = m.AccumulatedMetrics["UsingRelayHistogram"] / ok * 100.
-	m.AccumulatedMetrics["FailedPercent"] = m.AccumulatedMetrics["NumFailed"] / ok * 100.
+	ok := m.AccumulatedMetrics["NumAttemptsRate01"]
+	if нол(ok) {
+		return m
+	}
+
+	m.AccumulatedMetrics["TCPDirectPercent"] = m.AccumulatedMetrics["UsingTCPDirectHistogramRate01"] / ok * 100.
+	m.AccumulatedMetrics["NATPercent"] = m.AccumulatedMetrics["UsingNATHistogramRate01"] / ok * 100.
+	m.AccumulatedMetrics["QNATPercent"] = m.AccumulatedMetrics["UsingQNATHistogramRate01"] / ok * 100.
+	m.AccumulatedMetrics["RelayPercent"] = m.AccumulatedMetrics["UsingRelayHistogramRate01"] / ok * 100.
+	m.AccumulatedMetrics["FailedPercent"] = m.AccumulatedMetrics["NumFailedRate01"] / ok * 100.
 
 	return m
 }
@@ -185,18 +197,82 @@ func (m *metricsLoader) DialerMetrics() map[string]interface{} {
 		return nil
 	}
 
-	x := DialerMetrics{AccumulatedMetrics: types.AccumulatedMetrics{}}
-	for _, rows := range metrics {
+	index := map[string]map[string]float64{}
+	//            ^ addr      ^ metric
+
+	// x := DialerMetrics{AccumulatedMetrics: types.AccumulatedMetrics{}}
+	for addr, rows := range metrics {
+		tmp := map[string]float64{}
 		for _, row := range rows {
 			if row.Metric.Counter != nil {
-				x.Insert(row.Name, row.Metric.Counter.GetValue())
+				tmp[row.Name] = row.Metric.Counter.GetValue()
+				// x.Insert(row.Name, row.Metric.Counter.GetValue())
 			}
 
 			if row.Metric.Histogram != nil {
-				x.Insert(row.Name, float64(row.Metric.GetHistogram().GetSampleCount()))
+				tmp[row.Name] = float64(row.Metric.GetHistogram().GetSampleCount())
+				// x.Insert(row.Name, float64(row.Metric.GetHistogram().GetSampleCount()))
+			}
+
+			if row.Metric.Gauge != nil {
+				tmp[row.Name] = row.Metric.Gauge.GetValue()
+				// x.Insert(row.Name, row.Metric.Gauge.GetValue())
 			}
 		}
+		index[addr] = tmp
 	}
 
-	return x.calculatePercents().Unwrap()
+	if len(index) == 0 {
+		m.log.Warn("WAAAAT?")
+		return map[string]interface{}{}
+	}
+
+	for _, measurements := range index {
+		ok := measurements["NumAttemptsRate01"]
+		if нол(ok) {
+			continue
+		}
+
+		measurements["TCPDirectPercent"] = measurements["UsingTCPDirectHistogramRate01"] / ok * 100.
+		measurements["NATPercent"] = measurements["UsingNATHistogramRate01"] / ok * 100.
+		measurements["QNATPercent"] = measurements["UsingQNATHistogramRate01"] / ok * 100.
+		measurements["RelayPercent"] = measurements["UsingRelayHistogramRate01"] / ok * 100.
+		measurements["FailedPercent"] = measurements["NumFailedRate01"] / ok * 100.
+		measurements["SuccessPercent"] = measurements["NumSuccessRate01"] / ok * 100.
+	}
+
+	result := map[string]float64{
+		"TCPDirectPercent": 0.,
+		"NATPercent":       0.,
+		"QNATPercent":      0.,
+		"RelayPercent":     0.,
+		"FailedPercent":    0.,
+		"SuccessPercent":   0,
+	}
+
+	for _, tmp := range index {
+		result["TCPDirectPercent"] += tmp["TCPDirectPercent"]
+		result["NATPercent"] += tmp["NATPercent"]
+		result["QNATPercent"] += tmp["QNATPercent"]
+		result["RelayPercent"] += tmp["RelayPercent"]
+		result["FailedPercent"] += tmp["FailedPercent"]
+		result["SuccessPercent"] += tmp["SuccessPercent"]
+	}
+
+	ko := float64(len(index))
+	result["TCPDirectPercent"] = result["TCPDirectPercent"] / ko
+	result["NATPercent"] = result["NATPercent"] / ko
+	result["QNATPercent"] = result["QNATPercent"] / ko
+	result["RelayPercent"] = result["RelayPercent"] / ko
+	result["FailedPercent"] = result["FailedPercent"] / ko
+	result["SuccessPercent"] = result["SuccessPercent"] / ko
+
+	final := map[string]interface{}{
+		"FailedPercentVnature": 100 - result["SuccessPercent"],
+	}
+	for k, v := range result {
+		final[k] = v
+	}
+
+	return final
 }

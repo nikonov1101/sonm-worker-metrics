@@ -5,7 +5,6 @@ import (
 	"flag"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/jinzhu/configor"
 	"github.com/opentracing/opentracing-go"
 	"github.com/sonm-io/core/accounts"
@@ -133,39 +132,48 @@ x1:
 
 			log.Info("workers collected", zap.Int("count", len(workers)))
 			// loop over peers, connect via NPP and collect metrics
+
+			wwg, cctx := errgroup.WithContext(ctx)
 			for _, worker := range workers {
-				go func(w common.Address) {
-					var noStatus, noMetrics bool
+				w := worker
+				wwg.Go(func() error {
+					// todo: will be better to split those statuses
+					//  no_status and no_metrics
+					metrics := map[string]float64{"error": 0}
+					noStatus := false
 
 					// the `status` handle returns version and country
-					status, err := collectro.Status(ctx, w)
+					status, err := collectro.Status(cctx, w)
 					if err != nil {
 						log.Warn("failed to collect status", zap.Stringer("worker", w), zap.Error(err))
+						metrics = map[string]float64{"error": 1}
+						status = map[string]string{}
 						noStatus = true
 					}
 
-					metrics := make(map[string]float64)
 					if !noStatus {
 						// we can ask for metrics if worker is online and version supports metrics
-						metrics, err = collectro.Metrics(ctx, w, status["version"])
+						metrics, err = collectro.Metrics(cctx, w, status["version"])
 						if err != nil {
 							log.Warn("failed to collect metrics", zap.Stringer("worker", w), zap.Error(err))
-							noMetrics = true
+						} else {
+							metrics["error"] = 0
 						}
-					}
-
-					if noMetrics || noStatus {
-						metrics = map[string]float64{"error": 1}
-						status = map[string]string{}
 					}
 
 					// write scrapped info into influxDB for alerting and future processing
 					if err := exporto.Write(metricsPointName, w, metrics, status); err != nil {
 						log.Warn("failed to write metrics", zap.Stringer("worker", w), zap.Error(err))
 					}
-				}(worker)
+
+					return nil
+				})
 			}
-		case <-mtk.C:
+
+			if err := wwg.Wait(); err != nil {
+				log.Warn("хуйня какая-то", zap.Error(err))
+			}
+
 			if err := exporto.WriteRaw("connections", nil, collectro.DialerMetrics()); err != nil {
 				log.Warn("failed to write dialer metrics", zap.Error(err))
 			}

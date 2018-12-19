@@ -38,7 +38,7 @@ func (m *aggregator) Run(ctx context.Context) {
 }
 
 func (m *aggregator) runOnce() {
-	rows, err := m.exporter.Read(`select * from worker_metrics where time > now() - 90s`)
+	rows, err := m.exporter.Read(`select * from worker_metrics where error = 0 and time > now() - 90s`)
 	if err != nil {
 		m.log.Warn("failed to run query", zap.Error(err))
 		return
@@ -84,10 +84,14 @@ func (m *aggregator) processRow(row models.Row) []*workerRow {
 	versionIdx := 0
 	geoIdx := 0
 	addrIdx := 0
+	// errIdx := 0
 	var workers []*workerRow
 
 	// find array index for values to aggregate
 	for i, v := range row.Columns {
+		//if v == "error" {
+		//	errIdx = i
+		//}
 		if v == "version" {
 			versionIdx = i
 		}
@@ -101,6 +105,24 @@ func (m *aggregator) processRow(row models.Row) []*workerRow {
 
 	// extract values from data rows
 	for x := range row.Values {
+		//if rawErr := row.Values[x][errIdx]; rawErr != nil {
+		//	n, ok := rawErr.(json.Number)
+		//	if !ok {
+		//		m.log.Error("failed to convert rawErr into json.Number", zap.String("typeof", reflect.TypeOf(rawErr).String()))
+		//		continue
+		//	}
+		//
+		//	q, err := n.Int64()
+		//	if err != nil {
+		//		m.log.Error("failed to parse rawErr value as int64", zap.Error(err))
+		//		continue
+		//	}
+		//
+		//	if q > 0 {
+		//		continue
+		//	}
+		//}
+
 		addr := row.Values[x][addrIdx]
 		geo := row.Values[x][geoIdx]
 		ver := row.Values[x][versionIdx]
