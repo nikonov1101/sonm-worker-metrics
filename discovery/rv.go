@@ -54,7 +54,12 @@ func (m *rvDiscovery) List(ctx context.Context) ([]common.Address, map[string]in
 	peers := map[common.Address]struct{}{}
 	protocols := types.AccumulatedMetrics{}
 
-	for addr := range state.GetState() {
+	for addr, info := range state.GetState() {
+		// drop servers which are not re-announced yet
+		if len(info.Servers) == 0 {
+			continue
+		}
+
 		parts := strings.Split(addr, "//")
 		if len(parts) < 2 {
 			m.log.Warn("failed to parse peer addr", zap.String("raw", addr))
