@@ -3,7 +3,9 @@ package collector
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"time"
 
@@ -197,6 +199,8 @@ func (m *metricsLoader) DialerMetrics() map[string]interface{} {
 		return nil
 	}
 
+	m.stashDialerMetrics(metrics)
+
 	index := map[string]map[string]float64{}
 	//            ^ addr      ^ metric
 
@@ -275,4 +279,17 @@ func (m *metricsLoader) DialerMetrics() map[string]interface{} {
 	}
 
 	return final
+}
+
+func (m *metricsLoader) stashDialerMetrics(data map[string][]*npp.NamedMetric) {
+	fname := fmt.Sprintf("/tmp/dialer_stats_%d.json", time.Now().Unix())
+	j, err := json.Marshal(data)
+	if err != nil {
+		m.log.Error("failed to marshal dialer stats", zap.Error(err))
+		return
+	}
+
+	if err := ioutil.WriteFile(fname, j, 0600); err != nil {
+		m.log.Error("failed to write dialer stats", zap.String("file", fname), zap.Error(err))
+	}
 }
