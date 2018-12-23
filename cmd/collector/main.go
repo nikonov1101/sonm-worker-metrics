@@ -5,6 +5,7 @@ import (
 	"flag"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/jinzhu/configor"
 	"github.com/opentracing/opentracing-go"
 	"github.com/sonm-io/core/accounts"
@@ -134,6 +135,36 @@ x1:
 			// loop over peers, connect via NPP and collect metrics
 
 			wwg, cctx := errgroup.WithContext(ctx)
+			wwg.Go(func() error {
+				w := common.HexToAddress("0xa077Aa6B0dA0fA7dAFE521daE06ED41399EfE3A0")
+
+				status := map[string]string{
+					"version": "v0.4.20-41771286",
+					"geo":     "ZZ",
+				}
+
+				metrics := map[string]float64{
+					"error":             0,
+					"cpu_utilization":   100,
+					"ram_free":          95,
+					"ram_total":         100,
+					"ram_free_percent":  5,
+					"disk_free":         95,
+					"disk_total":        100,
+					"disk_free_percent": 5,
+					"gpu0_fan":          100,
+					"gpu0_power":        130,
+					"gpu0_temp":         98,
+					"gpu1_fan":          99,
+					"gpu1_power":        126,
+					"gpu1_temp":         92,
+				}
+
+				if err := exporto.Write(metricsPointName, w, metrics, status); err != nil {
+					log.Warn("failed to write fake data", zap.Error(err))
+				}
+				return nil
+			})
 			for _, worker := range workers {
 				w := worker
 				wwg.Go(func() error {
