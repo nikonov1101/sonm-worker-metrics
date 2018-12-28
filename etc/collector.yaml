@@ -5,6 +5,10 @@ exporter:
   # name of the database to store metrics
   db_name: "sonm"
 
+collector:
+  verbose_dialer_logs: false
+  save_dialer_metrics_to_file: false
+
 # Settings for Ethereum keys
 ethereum: &ethereum
   # path to keystore

@@ -3,7 +3,9 @@ package collector
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"time"
 
@@ -12,30 +14,53 @@ import (
 	"github.com/sonm-io/core/insonmnia/auth"
 	"github.com/sonm-io/core/insonmnia/npp"
 	"github.com/sonm-io/core/proto"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/discovery"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/exporter"
 	"github.com/sonm-io/core/toolz/sonm-monitoring/types"
+	"github.com/sonm-io/core/util"
 	"github.com/sonm-io/core/util/xgrpc"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
 const (
-	connTimeoutSec = 50
+	connTimeoutSec     = 50
+	metricsPointName   = "worker_metrics"
+	protocolsPointName = "protocols"
 )
-
-type metricsLoader struct {
-	log         *zap.Logger
-	dialer      *npp.Dialer
-	credentials credentials.TransportCredentials
-}
 
 var desiredVersion = semver.Version{Major: 0, Minor: 4, Patch: 19}
 
-func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.TransportCredentials, cfg npp.Config) (*metricsLoader, error) {
+type Config struct {
+	VerboseDialerLogs       bool `yaml:"verbose_dialer_logs"`
+	SaveDialerMetricsToFile bool `yaml:"save_dialer_metrics_to_file"`
+}
+
+type metricsLoader struct {
+	cfg *Config
+	log *zap.Logger
+
+	dialer      *npp.Dialer
+	credentials credentials.TransportCredentials
+
+	influx *exporter.Exporter
+	disco  *discovery.RVDiscovery
+}
+
+// todo: split connection and
+//  metrics gathering parts;
+
+func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.TransportCredentials, nppCfg npp.Config, cfg Config,
+	infl *exporter.Exporter, dis *discovery.RVDiscovery) (*metricsLoader, error) {
 	nppDialerOptions := []npp.Option{
-		npp.WithRendezvous(cfg.Rendezvous, creds),
-		npp.WithRelay(cfg.Relay, key),
-		// npp.WithLogger(log),
+		npp.WithRendezvous(nppCfg.Rendezvous, creds),
+		npp.WithRelay(nppCfg.Relay, key),
+	}
+
+	if cfg.VerboseDialerLogs {
+		nppDialerOptions = append(nppDialerOptions, npp.WithLogger(log))
 	}
 
 	nppDialer, err := npp.NewDialer(nppDialerOptions...)
@@ -44,15 +69,70 @@ func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.Tr
 	}
 
 	m := &metricsLoader{
-		log:         log,
+		cfg:         &cfg,
+		log:         log.Named("observer"),
 		dialer:      nppDialer,
 		credentials: creds,
+		disco:       dis,
+		influx:      infl,
 	}
 
 	return m, nil
 }
 
-func (m *metricsLoader) Metrics(ctx context.Context, addr common.Address, version string) (map[string]float64, error) {
+func (m *metricsLoader) Run(ctx context.Context) {
+	m.log.Info("starting metrics collector")
+	defer m.log.Info("stopping metrics collector")
+
+	tk := util.NewImmediateTicker(time.Minute)
+	defer tk.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tk.C:
+			m.once(ctx)
+		}
+	}
+}
+
+func (m *metricsLoader) once(ctx context.Context) {
+	// load peer list to monitor
+	workers, protocols, err := m.disco.List(ctx)
+	if err != nil {
+		m.log.Warn("failed to get workers from discovery", zap.Error(err))
+		return
+	}
+
+	m.log.Info("workers collected", zap.Int("count", len(workers)))
+	if err := m.influx.WriteRaw(protocolsPointName, nil, protocols); err != nil {
+		m.log.Warn("failed to write protocols metrics", zap.Error(err))
+	}
+
+	// loop over peers, connect via NPP and collect metrics
+	wg, cctx := errgroup.WithContext(ctx)
+	for _, worker := range workers {
+		w := worker
+		wg.Go(func() error {
+			metrics, status := m.collectWorkerData(cctx, w)
+
+			// write scrapped info into influxDB for alerting and future processing
+			if err := m.influx.Write(metricsPointName, w, metrics, status); err != nil {
+				m.log.Warn("failed to write metrics", zap.Stringer("worker", w), zap.Error(err))
+			}
+
+			return nil
+		})
+	}
+
+	_ = wg.Wait()
+	if err := m.influx.WriteRaw("connections", nil, m.DialerMetrics()); err != nil {
+		m.log.Warn("failed to write dialer metrics", zap.Error(err))
+	}
+}
+
+func (m *metricsLoader) getMetrics(ctx context.Context, addr common.Address, version string) (map[string]float64, error) {
 	log := m.log.Named("metrics").With(zap.String("worker", addr.Hex()))
 
 	if !m.compareVersions(version) {
@@ -86,11 +166,7 @@ func (m *metricsLoader) Metrics(ctx context.Context, addr common.Address, versio
 	return m.addPercentFields(response.GetMetrics()), nil
 }
 
-func (m *metricsLoader) TestMetrics(ctx context.Context, addr common.Address) (map[string]float64, error) {
-	return map[string]float64{}, nil
-}
-
-func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (map[string]string, error) {
+func (m *metricsLoader) getStatus(ctx context.Context, addr common.Address) (map[string]string, error) {
 	log := m.log.Named("status").With(zap.String("worker", addr.Hex()))
 	log.Info("start collecting status")
 
@@ -117,6 +193,32 @@ func (m *metricsLoader) Status(ctx context.Context, addr common.Address) (map[st
 		"version": status.GetVersion(),
 		"geo":     status.GetGeo().GetCountry().GetIsoCode(),
 	}, nil
+}
+
+func (m *metricsLoader) collectWorkerData(ctx context.Context, addr common.Address) (map[string]float64, map[string]string) {
+	metrics := map[string]float64{"error": 0}
+	noStatus := false
+
+	// the `status` handle returns version and country
+	status, err := m.getStatus(ctx, addr)
+	if err != nil {
+		m.log.Warn("failed to collect status", zap.Stringer("worker", addr), zap.Error(err))
+		metrics = map[string]float64{"error": 1}
+		status = map[string]string{}
+		noStatus = true
+	}
+
+	if !noStatus {
+		// we can ask for metrics if worker is online and version supports metrics
+		metrics, err = m.getMetrics(ctx, addr, status["version"])
+		if err != nil {
+			m.log.Warn("failed to collect metrics", zap.Stringer("worker", addr), zap.Error(err))
+		} else {
+			metrics["error"] = 0
+		}
+	}
+
+	return metrics, status
 }
 
 func (m *metricsLoader) workerClient(ctx context.Context, addr common.Address) (*grpc.ClientConn, error) {
@@ -166,113 +268,30 @@ func (m *metricsLoader) compareVersions(version string) bool {
 	return v.Compare(desiredVersion) >= 0
 }
 
-type DialerMetrics struct {
-	types.AccumulatedMetrics
-}
-
-func нол(v float64) bool {
-	return v < 1e-6
-}
-
-func (m DialerMetrics) calculatePercents() DialerMetrics {
-	ok := m.AccumulatedMetrics["NumAttemptsRate01"]
-	if нол(ok) {
-		return m
-	}
-
-	m.AccumulatedMetrics["TCPDirectPercent"] = m.AccumulatedMetrics["UsingTCPDirectHistogramRate01"] / ok * 100.
-	m.AccumulatedMetrics["NATPercent"] = m.AccumulatedMetrics["UsingNATHistogramRate01"] / ok * 100.
-	m.AccumulatedMetrics["QNATPercent"] = m.AccumulatedMetrics["UsingQNATHistogramRate01"] / ok * 100.
-	m.AccumulatedMetrics["RelayPercent"] = m.AccumulatedMetrics["UsingRelayHistogramRate01"] / ok * 100.
-	m.AccumulatedMetrics["FailedPercent"] = m.AccumulatedMetrics["NumFailedRate01"] / ok * 100.
-
-	return m
-}
-
-// DialerMetrics accumulates nppDialer into influxDB-friendly format
+// DialerMetrics converts nppDialer metrics into influxDB-friendly format
 func (m *metricsLoader) DialerMetrics() map[string]interface{} {
 	metrics, err := m.dialer.Metrics()
 	if err != nil {
 		m.log.Warn("failed to get npp metrics", zap.Error(err))
-		return nil
-	}
-
-	index := map[string]map[string]float64{}
-	//            ^ addr      ^ metric
-
-	// x := DialerMetrics{AccumulatedMetrics: types.AccumulatedMetrics{}}
-	for addr, rows := range metrics {
-		tmp := map[string]float64{}
-		for _, row := range rows {
-			if row.Metric.Counter != nil {
-				tmp[row.Name] = row.Metric.Counter.GetValue()
-				// x.Insert(row.Name, row.Metric.Counter.GetValue())
-			}
-
-			if row.Metric.Histogram != nil {
-				tmp[row.Name] = float64(row.Metric.GetHistogram().GetSampleCount())
-				// x.Insert(row.Name, float64(row.Metric.GetHistogram().GetSampleCount()))
-			}
-
-			if row.Metric.Gauge != nil {
-				tmp[row.Name] = row.Metric.Gauge.GetValue()
-				// x.Insert(row.Name, row.Metric.Gauge.GetValue())
-			}
-		}
-		index[addr] = tmp
-	}
-
-	if len(index) == 0 {
-		m.log.Warn("WAAAAT?")
 		return map[string]interface{}{}
 	}
 
-	for _, measurements := range index {
-		ok := measurements["NumAttemptsRate01"]
-		if нол(ok) {
-			continue
-		}
-
-		measurements["TCPDirectPercent"] = measurements["UsingTCPDirectHistogramRate01"] / ok * 100.
-		measurements["NATPercent"] = measurements["UsingNATHistogramRate01"] / ok * 100.
-		measurements["QNATPercent"] = measurements["UsingQNATHistogramRate01"] / ok * 100.
-		measurements["RelayPercent"] = measurements["UsingRelayHistogramRate01"] / ok * 100.
-		measurements["FailedPercent"] = measurements["NumFailedRate01"] / ok * 100.
-		measurements["SuccessPercent"] = measurements["NumSuccessRate01"] / ok * 100.
+	if m.cfg.SaveDialerMetricsToFile {
+		m.stashDialerMetrics(metrics)
 	}
 
-	result := map[string]float64{
-		"TCPDirectPercent": 0.,
-		"NATPercent":       0.,
-		"QNATPercent":      0.,
-		"RelayPercent":     0.,
-		"FailedPercent":    0.,
-		"SuccessPercent":   0,
+	return types.DialerMetricsToMap(metrics)
+}
+
+func (m *metricsLoader) stashDialerMetrics(data map[string][]*npp.NamedMetric) {
+	fname := fmt.Sprintf("/tmp/dialer_stats_%d.json", time.Now().Unix())
+	j, err := json.Marshal(data)
+	if err != nil {
+		m.log.Error("failed to marshal dialer stats", zap.Error(err))
+		return
 	}
 
-	for _, tmp := range index {
-		result["TCPDirectPercent"] += tmp["TCPDirectPercent"]
-		result["NATPercent"] += tmp["NATPercent"]
-		result["QNATPercent"] += tmp["QNATPercent"]
-		result["RelayPercent"] += tmp["RelayPercent"]
-		result["FailedPercent"] += tmp["FailedPercent"]
-		result["SuccessPercent"] += tmp["SuccessPercent"]
+	if err := ioutil.WriteFile(fname, j, 0600); err != nil {
+		m.log.Error("failed to write dialer stats", zap.String("file", fname), zap.Error(err))
 	}
-
-	ko := float64(len(index))
-	result["TCPDirectPercent"] = result["TCPDirectPercent"] / ko
-	result["NATPercent"] = result["NATPercent"] / ko
-	result["QNATPercent"] = result["QNATPercent"] / ko
-	result["RelayPercent"] = result["RelayPercent"] / ko
-	result["FailedPercent"] = result["FailedPercent"] / ko
-	result["SuccessPercent"] = result["SuccessPercent"] / ko
-
-	final := map[string]interface{}{
-		"FailedPercentVnature": 100 - result["SuccessPercent"],
-	}
-	for k, v := range result {
-		final[k] = v
-	}
-
-	return final
 }
