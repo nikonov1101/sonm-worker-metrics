@@ -15,12 +15,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type rvDiscovery struct {
+type RVDiscovery struct {
 	log        *zap.Logger
 	rendezvous sonm.RendezvousClient
 }
 
-func NewRendezvousDiscovery(ctx context.Context, log *zap.Logger, creds *xgrpc.TransportCredentials, nppCfg npp.Config) (*rvDiscovery, error) {
+func NewRendezvousDiscovery(ctx context.Context, log *zap.Logger, creds *xgrpc.TransportCredentials, nppCfg npp.Config) (*RVDiscovery, error) {
 	rvEthAddr, err := nppCfg.Rendezvous.Endpoints[0].ETH() // TODO(sshaman1101): wtf?
 	if err != nil {
 		return nil, err
@@ -34,7 +34,7 @@ func NewRendezvousDiscovery(ctx context.Context, log *zap.Logger, creds *xgrpc.T
 		return nil, err
 	}
 
-	d := &rvDiscovery{
+	d := &RVDiscovery{
 		log:        log,
 		rendezvous: sonm.NewRendezvousClient(rvClientConn),
 	}
@@ -42,7 +42,7 @@ func NewRendezvousDiscovery(ctx context.Context, log *zap.Logger, creds *xgrpc.T
 	return d, nil
 }
 
-func (m *rvDiscovery) List(ctx context.Context) ([]common.Address, map[string]interface{}, error) {
+func (m *RVDiscovery) List(ctx context.Context) ([]common.Address, map[string]interface{}, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
