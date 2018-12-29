@@ -6,18 +6,18 @@ import (
 
 	"github.com/influxdata/influxdb/client/v2"
 	"github.com/influxdata/influxdb/models"
-	"github.com/sonm-io/core/toolz/sonm-monitoring/exporter"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/influx"
 	"github.com/sonm-io/core/util"
 	"go.uber.org/zap"
 )
 
 type aggregator struct {
-	log      *zap.Logger
-	exporter *exporter.Exporter
+	log    *zap.Logger
+	influx *influx.Influx
 }
 
-func NewAggregator(log *zap.Logger, exp *exporter.Exporter) *aggregator {
-	return &aggregator{log: log, exporter: exp}
+func NewAggregator(log *zap.Logger, inf *influx.Influx) *aggregator {
+	return &aggregator{log: log, influx: inf}
 }
 
 func (m *aggregator) Run(ctx context.Context) {
@@ -38,7 +38,7 @@ func (m *aggregator) Run(ctx context.Context) {
 }
 
 func (m *aggregator) runOnce() {
-	rows, err := m.exporter.Read(`select * from worker_metrics where error = 0 and time > now() - 90s`)
+	rows, err := m.influx.Read(`select * from worker_metrics where error = 0 and time > now() - 90s`)
 	if err != nil {
 		m.log.Warn("failed to run query", zap.Error(err))
 		return
@@ -50,15 +50,15 @@ func (m *aggregator) runOnce() {
 		zap.Int("by_vers", len(ctr.byVersion)),
 		zap.Int("by_location", len(ctr.byLocation)))
 
-	if err := m.exporter.WriteRaw("versions", nil, ctr.toVersion()); err != nil {
+	if err := m.influx.WriteRaw("versions", nil, ctr.toVersion()); err != nil {
 		m.log.Warn("failed to write versions measurement", zap.Error(err), zap.Any("values", ctr.toVersion()))
 	}
 
-	if err := m.exporter.WriteRaw("locations", nil, ctr.toLocation()); err != nil {
+	if err := m.influx.WriteRaw("locations", nil, ctr.toLocation()); err != nil {
 		m.log.Warn("failed to write locations measurement", zap.Error(err), zap.Any("values", ctr.toLocation()))
 	}
 
-	if err := m.exporter.WriteRaw("workers_count", nil, ctr.toWorkersCount()); err != nil {
+	if err := m.influx.WriteRaw("workers_count", nil, ctr.toWorkersCount()); err != nil {
 		m.log.Warn("failed to write count measurement", zap.Error(err), zap.Any("values", ctr.toWorkersCount()))
 	}
 }

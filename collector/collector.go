@@ -15,7 +15,7 @@ import (
 	"github.com/sonm-io/core/insonmnia/npp"
 	"github.com/sonm-io/core/proto"
 	"github.com/sonm-io/core/toolz/sonm-monitoring/discovery"
-	"github.com/sonm-io/core/toolz/sonm-monitoring/exporter"
+	"github.com/sonm-io/core/toolz/sonm-monitoring/influx"
 	"github.com/sonm-io/core/toolz/sonm-monitoring/types"
 	"github.com/sonm-io/core/util"
 	"github.com/sonm-io/core/util/xgrpc"
@@ -38,14 +38,14 @@ type Config struct {
 	SaveDialerMetricsToFile bool `yaml:"save_dialer_metrics_to_file"`
 }
 
-type metricsLoader struct {
+type workerMetricsCollector struct {
 	cfg *Config
 	log *zap.Logger
 
 	dialer      *npp.Dialer
 	credentials credentials.TransportCredentials
 
-	influx *exporter.Exporter
+	influx *influx.Influx
 	disco  *discovery.RVDiscovery
 }
 
@@ -53,7 +53,7 @@ type metricsLoader struct {
 //  metrics gathering parts;
 
 func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.TransportCredentials, nppCfg npp.Config, cfg Config,
-	infl *exporter.Exporter, dis *discovery.RVDiscovery) (*metricsLoader, error) {
+	infl *influx.Influx, dis *discovery.RVDiscovery) (*workerMetricsCollector, error) {
 	nppDialerOptions := []npp.Option{
 		npp.WithRendezvous(nppCfg.Rendezvous, creds),
 		npp.WithRelay(nppCfg.Relay, key),
@@ -68,7 +68,7 @@ func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.Tr
 		return nil, err
 	}
 
-	m := &metricsLoader{
+	m := &workerMetricsCollector{
 		cfg:         &cfg,
 		log:         log.Named("observer"),
 		dialer:      nppDialer,
@@ -80,7 +80,7 @@ func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.Tr
 	return m, nil
 }
 
-func (m *metricsLoader) Run(ctx context.Context) {
+func (m *workerMetricsCollector) Run(ctx context.Context) {
 	m.log.Info("starting metrics collector")
 	defer m.log.Info("stopping metrics collector")
 
@@ -97,7 +97,7 @@ func (m *metricsLoader) Run(ctx context.Context) {
 	}
 }
 
-func (m *metricsLoader) once(ctx context.Context) {
+func (m *workerMetricsCollector) once(ctx context.Context) {
 	// load peer list to monitor
 	workers, protocols, err := m.disco.List(ctx)
 	if err != nil {
@@ -132,7 +132,7 @@ func (m *metricsLoader) once(ctx context.Context) {
 	}
 }
 
-func (m *metricsLoader) getMetrics(ctx context.Context, addr common.Address, version string) (map[string]float64, error) {
+func (m *workerMetricsCollector) getMetrics(ctx context.Context, addr common.Address, version string) (map[string]float64, error) {
 	log := m.log.Named("metrics").With(zap.String("worker", addr.Hex()))
 
 	if !m.compareVersions(version) {
@@ -166,7 +166,7 @@ func (m *metricsLoader) getMetrics(ctx context.Context, addr common.Address, ver
 	return m.addPercentFields(response.GetMetrics()), nil
 }
 
-func (m *metricsLoader) getStatus(ctx context.Context, addr common.Address) (map[string]string, error) {
+func (m *workerMetricsCollector) getStatus(ctx context.Context, addr common.Address) (map[string]string, error) {
 	log := m.log.Named("status").With(zap.String("worker", addr.Hex()))
 	log.Info("start collecting status")
 
@@ -195,7 +195,7 @@ func (m *metricsLoader) getStatus(ctx context.Context, addr common.Address) (map
 	}, nil
 }
 
-func (m *metricsLoader) collectWorkerData(ctx context.Context, addr common.Address) (map[string]float64, map[string]string) {
+func (m *workerMetricsCollector) collectWorkerData(ctx context.Context, addr common.Address) (map[string]float64, map[string]string) {
 	metrics := map[string]float64{"error": 0}
 	noStatus := false
 
@@ -221,7 +221,7 @@ func (m *metricsLoader) collectWorkerData(ctx context.Context, addr common.Addre
 	return metrics, status
 }
 
-func (m *metricsLoader) workerClient(ctx context.Context, addr common.Address) (*grpc.ClientConn, error) {
+func (m *workerMetricsCollector) workerClient(ctx context.Context, addr common.Address) (*grpc.ClientConn, error) {
 	ethAddr := auth.NewETHAddr(addr)
 	conn, err := m.dialer.DialContext(ctx, *ethAddr)
 	if err != nil {
@@ -233,7 +233,7 @@ func (m *metricsLoader) workerClient(ctx context.Context, addr common.Address) (
 
 // addPercentFields calculates percent values for absolute values such as total/free memory in bytes,
 // then appends it to the whole metrics set.
-func (m *metricsLoader) addPercentFields(data map[string]float64) map[string]float64 {
+func (m *workerMetricsCollector) addPercentFields(data map[string]float64) map[string]float64 {
 	disk := (1 - (data[sonm.MetricsKeyDiskFree] / data[sonm.MetricsKeyDiskTotal])) * 100
 	if math.IsInf(disk, 0) || math.IsNaN(disk) {
 		disk = 0
@@ -249,13 +249,13 @@ func (m *metricsLoader) addPercentFields(data map[string]float64) map[string]flo
 	return data
 }
 
-func (m *metricsLoader) closeConn(cc *grpc.ClientConn) {
+func (m *workerMetricsCollector) closeConn(cc *grpc.ClientConn) {
 	if err := cc.Close(); err != nil {
 		m.log.Warn("clientConn close failed with error", zap.Error(err))
 	}
 }
 
-func (m *metricsLoader) compareVersions(version string) bool {
+func (m *workerMetricsCollector) compareVersions(version string) bool {
 	v, err := semver.ParseTolerant(version)
 	if err != nil {
 		m.log.Warn("failed to parse worker version", zap.String("raw", version), zap.Error(err))
@@ -269,7 +269,7 @@ func (m *metricsLoader) compareVersions(version string) bool {
 }
 
 // DialerMetrics converts nppDialer metrics into influxDB-friendly format
-func (m *metricsLoader) DialerMetrics() map[string]interface{} {
+func (m *workerMetricsCollector) DialerMetrics() map[string]interface{} {
 	metrics, err := m.dialer.Metrics()
 	if err != nil {
 		m.log.Warn("failed to get npp metrics", zap.Error(err))
@@ -283,7 +283,7 @@ func (m *metricsLoader) DialerMetrics() map[string]interface{} {
 	return types.DialerMetricsToMap(metrics)
 }
 
-func (m *metricsLoader) stashDialerMetrics(data map[string][]*npp.NamedMetric) {
+func (m *workerMetricsCollector) stashDialerMetrics(data map[string][]*npp.NamedMetric) {
 	fname := fmt.Sprintf("/tmp/dialer_stats_%d.json", time.Now().Unix())
 	j, err := json.Marshal(data)
 	if err != nil {

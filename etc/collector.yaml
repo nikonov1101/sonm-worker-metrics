@@ -1,12 +1,17 @@
 # Exported settings describes connection parameters for influxdb
-exporter:
+influx:
   # URL of influxdb instance
   db_addr: "http://localhost:8086"
   # name of the database to store metrics
   db_name: "sonm"
 
 collector:
+  # attach logger to npp dialer.
+  # heavily increases the number of log lines per connect,
+  # but allows to observe how does NPP works.
   verbose_dialer_logs: false
+  # serialize dialer metrics and save into file in /tmp/,
+  # it may help to debug various metrics calculation bugs.
   save_dialer_metrics_to_file: false
 
 # Settings for Ethereum keys

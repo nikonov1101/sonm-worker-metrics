@@ -1,4 +1,4 @@
-package exporter
+package influx
 
 import (
 	"fmt"
@@ -15,18 +15,18 @@ type Config struct {
 	DBName string `yaml:"db_name"`
 }
 
-type Exporter struct {
+type Influx struct {
 	cli    client.Client
 	dbName string
 }
 
-func (m *Exporter) Close() {
+func (m *Influx) Close() {
 	if m.cli != nil {
 		m.cli.Close()
 	}
 }
 
-func NewExporter(cfg *Config) (*Exporter, error) {
+func NewInfluxClient(cfg *Config) (*Influx, error) {
 	cli, err := client.NewHTTPClient(client.HTTPConfig{
 		Addr:    cfg.DBAddr,
 		Timeout: influxClientDefaultTimeout,
@@ -36,7 +36,7 @@ func NewExporter(cfg *Config) (*Exporter, error) {
 		return nil, err
 	}
 
-	e := &Exporter{
+	e := &Influx{
 		cli:    cli,
 		dbName: cfg.DBName,
 	}
@@ -44,7 +44,7 @@ func NewExporter(cfg *Config) (*Exporter, error) {
 	return e, nil
 }
 
-func (m *Exporter) Write(pointName string, worker common.Address, metrics map[string]float64, extra map[string]string) error {
+func (m *Influx) Write(pointName string, worker common.Address, metrics map[string]float64, extra map[string]string) error {
 	tags := map[string]string{"worker": worker.Hex()}
 	fields := map[string]interface{}{}
 
@@ -58,7 +58,7 @@ func (m *Exporter) Write(pointName string, worker common.Address, metrics map[st
 	return m.WriteRaw(pointName, tags, fields)
 }
 
-func (m *Exporter) WriteRaw(pointName string, tags map[string]string, values map[string]interface{}) error {
+func (m *Influx) WriteRaw(pointName string, tags map[string]string, values map[string]interface{}) error {
 	batch, err := client.NewBatchPoints(client.BatchPointsConfig{
 		Database:  m.dbName,
 		Precision: "s",
@@ -77,7 +77,7 @@ func (m *Exporter) WriteRaw(pointName string, tags map[string]string, values map
 	return m.cli.Write(batch)
 }
 
-func (m *Exporter) Read(cmd string) ([]client.Result, error) {
+func (m *Influx) Read(cmd string) ([]client.Result, error) {
 	q := client.Query{
 		Command:  cmd,
 		Database: m.dbName,

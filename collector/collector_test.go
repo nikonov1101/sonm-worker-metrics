@@ -8,7 +8,7 @@ import (
 )
 
 func TestCalculatePercent(t *testing.T) {
-	ld := &metricsLoader{}
+	ld := &workerMetricsCollector{}
 
 	input := map[string]float64{
 		sonm.MetricsKeyDiskTotal: 1000,
