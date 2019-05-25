@@ -9,7 +9,7 @@ import (
 	"github.com/sonm-io/core/insonmnia/auth"
 	"github.com/sonm-io/core/insonmnia/npp"
 	"github.com/sonm-io/core/proto"
-	"github.com/sonm-io/core/toolz/sonm-monitoring/types"
+	"github.com/sonm-io/monitoring/types"
 	"github.com/sonm-io/core/util"
 	"github.com/sonm-io/core/util/xgrpc"
 	"go.uber.org/zap"
