@@ -14,11 +14,11 @@ import (
 	"github.com/sonm-io/core/insonmnia/auth"
 	"github.com/sonm-io/core/insonmnia/npp"
 	"github.com/sonm-io/core/proto"
+	"github.com/sonm-io/core/util"
+	"github.com/sonm-io/core/util/xgrpc"
 	"github.com/sonm-io/monitoring/discovery"
 	"github.com/sonm-io/monitoring/influx"
 	"github.com/sonm-io/monitoring/types"
-	"github.com/sonm-io/core/util"
-	"github.com/sonm-io/core/util/xgrpc"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -110,6 +110,10 @@ func (m *workerMetricsCollector) once(ctx context.Context) {
 		m.log.Warn("failed to write protocols metrics", zap.Error(err))
 	}
 
+	if err := m.influx.WriteRaw("rv_peers", nil, map[string]interface{}{"count": len(workers)}); err != nil {
+		m.log.Warn("failed to write raw workers count measurement", zap.Error(err))
+	}
+
 	// loop over peers, connect via NPP and collect metrics
 	wg, cctx := errgroup.WithContext(ctx)
 	for _, worker := range workers {
@@ -196,26 +200,20 @@ func (m *workerMetricsCollector) getStatus(ctx context.Context, addr common.Addr
 }
 
 func (m *workerMetricsCollector) collectWorkerData(ctx context.Context, addr common.Address) (map[string]float64, map[string]string) {
-	metrics := map[string]float64{"error": 0}
-	noStatus := false
-
 	// the `status` handle returns version and country
 	status, err := m.getStatus(ctx, addr)
 	if err != nil {
 		m.log.Warn("failed to collect status", zap.Stringer("worker", addr), zap.Error(err))
-		metrics = map[string]float64{"error": 1}
-		status = map[string]string{}
-		noStatus = true
+		return map[string]float64{"error": 1}, map[string]string{}
 	}
 
-	if !noStatus {
-		// we can ask for metrics if worker is online and version supports metrics
-		metrics, err = m.getMetrics(ctx, addr, status["version"])
-		if err != nil {
-			m.log.Warn("failed to collect metrics", zap.Stringer("worker", addr), zap.Error(err))
-		} else {
-			metrics["error"] = 0
-		}
+	// we can ask for metrics if worker is online and version supports metrics
+	metrics, err := m.getMetrics(ctx, addr, status["version"])
+	if err != nil {
+		m.log.Warn("failed to collect metrics", zap.Stringer("worker", addr), zap.Error(err))
+		metrics = map[string]float64{"error": 1}
+	} else {
+		metrics["error"] = 0
 	}
 
 	return metrics, status

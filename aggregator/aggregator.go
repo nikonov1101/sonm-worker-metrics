@@ -6,8 +6,8 @@ import (
 
 	"github.com/influxdata/influxdb/client/v2"
 	"github.com/influxdata/influxdb/models"
-	"github.com/sonm-io/monitoring/influx"
 	"github.com/sonm-io/core/util"
+	"github.com/sonm-io/monitoring/influx"
 	"go.uber.org/zap"
 )
 
@@ -17,7 +17,7 @@ type aggregator struct {
 }
 
 func NewAggregator(log *zap.Logger, inf *influx.Influx) *aggregator {
-	return &aggregator{log: log, influx: inf}
+	return &aggregator{log: log.Named("aggrg"), influx: inf}
 }
 
 func (m *aggregator) Run(ctx context.Context) {
