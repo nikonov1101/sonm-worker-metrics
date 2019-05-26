@@ -9,6 +9,7 @@ import (
 	"github.com/sonm-io/core/blockchain"
 	sonm "github.com/sonm-io/core/proto"
 	"github.com/sonm-io/core/util"
+	"github.com/sonm-io/monitoring/influx"
 	"github.com/sonm-io/monitoring/plugins"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -30,14 +31,16 @@ type walletPlugin struct {
 	log *zap.Logger
 	bta blockchain.TokenAPI
 	dwh sonm.DWHClient
+	inf *influx.Influx
 }
 
-func NewWalletPlugin(cfg *Config, log *zap.Logger, bta blockchain.TokenAPI, dwh sonm.DWHClient) plugins.Plugin {
+func NewWalletPlugin(cfg *Config, log *zap.Logger, inf *influx.Influx, bta blockchain.TokenAPI, dwh sonm.DWHClient) plugins.Plugin {
 	return &walletPlugin{
 		cfg: cfg,
 		log: log.Named("wallet"),
 		bta: bta,
 		dwh: dwh,
+		inf: inf,
 	}
 }
 
@@ -60,7 +63,19 @@ func (m *walletPlugin) once(ctx context.Context) {
 	for i := range m.cfg.Addresses {
 		row, err := m.collect(ctx, m.cfg.Addresses[i])
 		if err == nil {
-			m.log.Info("row collection done", zap.Any("data", *row))
+			m.log.Debug("row collection done", zap.Any("data", *row))
+			err = m.inf.WriteRaw(
+				"wallets",
+				map[string]string{"addr": row.Addr.String()},
+				map[string]interface{}{
+					"balance": row.Balance,
+					"deals":   int64(row.Deals),
+					"orders":  int64(row.Orders),
+				},
+			)
+			if err != nil {
+				m.log.Warn("failed to write wallet data info influxdb", zap.Error(err))
+			}
 		}
 	}
 }

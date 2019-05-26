@@ -22,7 +22,7 @@ type Influx struct {
 
 func (m *Influx) Close() {
 	if m.cli != nil {
-		m.cli.Close()
+		_ = m.cli.Close()
 	}
 }
 

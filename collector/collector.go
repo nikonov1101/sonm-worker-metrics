@@ -49,9 +49,6 @@ type workerMetricsCollector struct {
 	disco  *discovery.RVDiscovery
 }
 
-// todo: split connection and
-//  metrics gathering parts;
-
 func NewMetricsCollector(log *zap.Logger, key *ecdsa.PrivateKey, creds *xgrpc.TransportCredentials, nppCfg npp.Config, cfg Config,
 	infl *influx.Influx, dis *discovery.RVDiscovery) (*workerMetricsCollector, error) {
 	nppDialerOptions := []npp.Option{

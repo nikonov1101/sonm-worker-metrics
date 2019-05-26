@@ -3,36 +3,27 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/sonm-io/core/blockchain"
-	sonm "github.com/sonm-io/core/proto"
-	"github.com/sonm-io/monitoring/config"
-	"github.com/sonm-io/monitoring/plugins/wallet"
 
 	"github.com/jinzhu/configor"
 	"github.com/opentracing/opentracing-go"
-	"github.com/sonm-io/core/accounts"
+	"github.com/sonm-io/core/blockchain"
 	"github.com/sonm-io/core/cmd"
 	"github.com/sonm-io/core/insonmnia/logging"
-	"github.com/sonm-io/core/insonmnia/npp"
+	sonm "github.com/sonm-io/core/proto"
 	"github.com/sonm-io/core/util"
 	"github.com/sonm-io/core/util/debug"
 	"github.com/sonm-io/core/util/xgrpc"
 	"github.com/sonm-io/monitoring/aggregator"
 	"github.com/sonm-io/monitoring/collector"
+	"github.com/sonm-io/monitoring/config"
 	"github.com/sonm-io/monitoring/discovery"
 	"github.com/sonm-io/monitoring/influx"
+	"github.com/sonm-io/monitoring/plugins/wallet"
 	"github.com/sonm-io/monitoring/types"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/sync/errgroup"
 )
-
-type Config struct {
-	Influx    influx.Config      `yaml:"influx"`
-	Collector collector.Config   `yaml:"collector"`
-	Eth       accounts.EthConfig `yaml:"ethereum"`
-	NPP       npp.Config         `yaml:"npp"`
-}
 
 var configPath string
 
@@ -51,13 +42,7 @@ func main() {
 
 	/* load config */
 	cfg := config.Config{}
-	cfgr := configor.New(&configor.Config{
-		Debug:   true,
-		Verbose: true,
-		// ErrorOnUnmatchedKeys: false,
-	})
-
-	if err := cfgr.Load(&cfg, configPath); err != nil {
+	if err := configor.Load(&cfg, configPath); err != nil {
 		log.Fatal("failed to load config file", zap.String("path", configPath), zap.Error(err))
 		return
 	}
@@ -116,7 +101,7 @@ func main() {
 		log.Fatal("failed to create collector service", zap.Error(err))
 	}
 
-	wp := wallet.NewWalletPlugin(&cfg.Plugins.Wallet, log, bc.SidechainToken(), sonm.NewDWHClient(dwhCC))
+	wp := wallet.NewWalletPlugin(&cfg.Plugins.Wallet, log, inf, bc.SidechainToken(), sonm.NewDWHClient(dwhCC))
 
 	wg, ctx := errgroup.WithContext(ctx)
 	wg.Go(func() error {
