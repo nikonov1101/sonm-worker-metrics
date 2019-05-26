@@ -8,41 +8,14 @@ type workerRow struct {
 	addr     string
 	version  string
 	location string
-}
-
-func newWorkerRow(addr, ver, loc interface{}) *workerRow {
-	var address, version, location string
-	ok := false
-
-	if address, ok = addr.(string); !ok {
-		addr = ""
-	}
-	if version, ok = ver.(string); !ok {
-		version = ""
-	}
-	if location, ok = loc.(string); !ok {
-		location = ""
-	}
-
-	if len(version) == 0 {
-		version = emptyValue
-	}
-
-	if len(location) == 0 {
-		location = emptyValue
-	}
-
-	return &workerRow{
-		addr:     address,
-		version:  version,
-		location: location,
-	}
+	err      bool
 }
 
 type counters struct {
 	byAddr     map[string]struct{}
 	byLocation map[string]int
 	byVersion  map[string]int
+	byErr      int
 }
 
 func newCounters() *counters {
@@ -50,6 +23,7 @@ func newCounters() *counters {
 		byAddr:     make(map[string]struct{}),
 		byLocation: make(map[string]int),
 		byVersion:  make(map[string]int),
+		byErr:      0,
 	}
 }
 
@@ -66,25 +40,44 @@ func (m *counters) addWorker(w *workerRow) {
 	// remember this worker
 	m.byAddr[w.addr] = struct{}{}
 
+	loc := w.location
+	if len(loc) == 0 {
+		loc = emptyValue
+	}
+
+	ver := w.version
+	if len(ver) == 0 {
+		ver = emptyValue
+	}
+
+	// calculate connectivity errors
+	if w.err {
+		m.byErr++
+	}
+
 	// count workers by location
-	v, ok := m.byLocation[w.location]
+	v, ok := m.byLocation[loc]
 	if ok {
-		m.byLocation[w.location] = v + 1
+		m.byLocation[loc] = v + 1
 	} else {
-		m.byLocation[w.location] = 1
+		m.byLocation[loc] = 1
 	}
 
 	// count workers by versions
-	v, ok = m.byVersion[w.version]
+	v, ok = m.byVersion[ver]
 	if ok {
-		m.byVersion[w.version] = v + 1
+		m.byVersion[ver] = v + 1
 	} else {
-		m.byVersion[w.version] = 1
+		m.byVersion[ver] = 1
 	}
 }
 
 func (m *counters) toWorkersCount() map[string]interface{} {
 	return map[string]interface{}{"count": len(m.byAddr)}
+}
+
+func (m *counters) toErrorCount() map[string]interface{} {
+	return map[string]interface{}{"count": m.byErr}
 }
 
 func (m *counters) toVersion() map[string]interface{} {

@@ -2,10 +2,10 @@ package aggregator
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/influxdata/influxdb/client/v2"
-	"github.com/influxdata/influxdb/models"
 	"github.com/sonm-io/core/util"
 	"github.com/sonm-io/monitoring/influx"
 	"go.uber.org/zap"
@@ -38,7 +38,7 @@ func (m *aggregator) Run(ctx context.Context) {
 }
 
 func (m *aggregator) runOnce() {
-	rows, err := m.influx.Read(`select * from worker_metrics where error = 0 and time > now() - 90s`)
+	rows, err := m.influx.Read(`select * from worker_metrics where time > now() - 90s`)
 	if err != nil {
 		m.log.Warn("failed to run query", zap.Error(err))
 		return
@@ -48,64 +48,88 @@ func (m *aggregator) runOnce() {
 	m.log.Info("counters updated",
 		zap.Int("by_addr", len(ctr.byAddr)),
 		zap.Int("by_vers", len(ctr.byVersion)),
-		zap.Int("by_location", len(ctr.byLocation)))
+		zap.Int("by_location", len(ctr.byLocation)),
+		zap.Int("by_err", ctr.byErr))
 
 	if err := m.influx.WriteRaw("versions", nil, ctr.toVersion()); err != nil {
-		m.log.Warn("failed to write versions measurement", zap.Error(err), zap.Any("values", ctr.toVersion()))
+		m.log.Warn("failed to write `versions` measurement", zap.Error(err), zap.Any("values", ctr.toVersion()))
 	}
 
 	if err := m.influx.WriteRaw("locations", nil, ctr.toLocation()); err != nil {
-		m.log.Warn("failed to write locations measurement", zap.Error(err), zap.Any("values", ctr.toLocation()))
+		m.log.Warn("failed to write `locations` measurement", zap.Error(err), zap.Any("values", ctr.toLocation()))
 	}
 
 	if err := m.influx.WriteRaw("workers_count", nil, ctr.toWorkersCount()); err != nil {
-		m.log.Warn("failed to write count measurement", zap.Error(err), zap.Any("values", ctr.toWorkersCount()))
+		m.log.Warn("failed to write `workers_count` measurement", zap.Error(err), zap.Any("values", ctr.toWorkersCount()))
+	}
+
+	if err := m.influx.WriteRaw("err_count", nil, ctr.toErrorCount()); err != nil {
+		m.log.Warn("failed to write `err_count` measurement", zap.Error(err), zap.Any("values", ctr.toErrorCount()))
 	}
 }
 
 func (m *aggregator) rowsToCounters(rows []client.Result) *counters {
-	ctr := newCounters()
+	uniqAddrs := map[string]*workerRow{}
 	for _, row := range rows {
 		if len(row.Series) == 0 {
 			m.log.Warn("empty series found, please check wth is going on with influxdb")
 			continue
 		}
 
-		workers := m.processRow(row.Series[0])
-		for _, worker := range workers {
-			ctr.addWorker(worker)
+		ser := row.Series[0]
+		var versionIdx, geoIdx, addrIdx, errIdx int
+
+		// find array index for values to aggregate
+		for i, v := range ser.Columns {
+			switch v {
+			case "worker":
+				addrIdx = i
+			case "version":
+				versionIdx = i
+			case "geo":
+				geoIdx = i
+			case "error":
+				errIdx = i
+			}
 		}
+
+		// extract values from data rows
+		for x := range ser.Values {
+			addr, ok := ser.Values[x][addrIdx].(string)
+			vers, ok := ser.Values[x][versionIdx].(string)
+			if !ok {
+				vers = ""
+			}
+			geo, ok := ser.Values[x][geoIdx].(string)
+			if !ok {
+				geo = ""
+			}
+
+			// Damn it! I hate working with raw influx values.
+			var errVal int64
+			if errValJson, ok := ser.Values[x][errIdx].(json.Number); !ok {
+				errVal = 1
+			} else {
+				if v, err := errValJson.Int64(); err != nil {
+					errVal = 1
+				} else {
+					errVal = v
+				}
+			}
+
+			uniqAddrs[addr] = &workerRow{
+				addr:     addr,
+				version:  vers,
+				location: geo,
+				err:      errVal > 0,
+			}
+		}
+	}
+
+	ctr := newCounters()
+	for _, m := range uniqAddrs {
+		ctr.addWorker(m)
 	}
 
 	return ctr
-}
-
-func (m *aggregator) processRow(row models.Row) []*workerRow {
-	versionIdx := 0
-	geoIdx := 0
-	addrIdx := 0
-
-	// find array index for values to aggregate
-	for i, v := range row.Columns {
-		if v == "version" {
-			versionIdx = i
-		}
-		if v == "geo" {
-			geoIdx = i
-		}
-		if v == "worker" {
-			addrIdx = i
-		}
-	}
-
-	// extract values from data rows
-	var workers []*workerRow
-	for x := range row.Values {
-		addr := row.Values[x][addrIdx]
-		geo := row.Values[x][geoIdx]
-		ver := row.Values[x][versionIdx]
-		workers = append(workers, newWorkerRow(addr, ver, geo))
-	}
-
-	return workers
 }
