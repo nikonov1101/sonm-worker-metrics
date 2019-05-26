@@ -9,7 +9,7 @@ replace github.com/libp2p/go-reuseport v0.1.10 => github.com/libp2p/go-reuseport
 require (
 	github.com/allegro/bigcache v1.2.0 // indirect
 	github.com/blang/semver v3.5.1+incompatible
-	github.com/ethereum/go-ethereum v1.8.27
+	github.com/ethereum/go-ethereum v0.0.0-20180929205331-b69942befeb9
 	github.com/influxdata/influxdb v1.7.6
 	github.com/jinzhu/configor v1.0.0
 	github.com/opentracing/basictracer-go v1.0.0

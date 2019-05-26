@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/sonm-io/core/blockchain"
+	sonm "github.com/sonm-io/core/proto"
+	"github.com/sonm-io/monitoring/plugins/wallet"
 
 	"github.com/jinzhu/configor"
 	"github.com/opentracing/opentracing-go"
@@ -93,6 +97,29 @@ func main() {
 		log.Fatal("failed to create collector service", zap.Error(err))
 	}
 
+	// todo: refactor configuration after tests
+	//// ===
+
+	// blockchain.WithConfig(&blockchain.Config{})
+	bc, err := blockchain.NewAPI(ctx)
+	if err != nil {
+		log.Fatal("failed to create blockchain API client", zap.Error(err))
+	}
+
+	dwhCC, err := xgrpc.NewClient(ctx, "0xadffcac607a0a1b583c489977eae413a62d4bc73@dwh.livenet.sonm.com:15021", creds)
+	if err != nil {
+		log.Fatal("failed to create DWH API client", zap.Error(err))
+	}
+
+	wcfg := &wallet.Config{
+		Addresses: []*sonm.EthAddress{
+			sonm.NewEthAddress(common.HexToAddress("0x6e81048e5c210b3e9c2a5e9b473f97f8655acfd6")),
+			sonm.NewEthAddress(common.HexToAddress("0x12371ca2f302179b421fbec2d3fa103626ee9338")),
+			sonm.NewEthAddress(common.HexToAddress("0x417c92fbd944b125a578848de44a4fd9132e0911")),
+		},
+	}
+	wp := wallet.NewWalletPlugin(wcfg, log, bc.SidechainToken(), sonm.NewDWHClient(dwhCC))
+
 	wg, ctx := errgroup.WithContext(ctx)
 	wg.Go(func() error {
 		return cmd.WaitInterrupted(ctx)
@@ -101,13 +128,20 @@ func main() {
 		return debug.ServePProf(ctx, debug.Config{Port: 6065}, log)
 	})
 	wg.Go(func() error {
-		aggr.Run(ctx)
+		wp.Run(ctx)
 		return nil
 	})
-	wg.Go(func() error {
-		collectro.Run(ctx)
-		return nil
-	})
+
+	_ = aggr
+	_ = collectro
+	//wg.Go(func() error {
+	//	aggr.Run(ctx)
+	//	return nil
+	//})
+	//wg.Go(func() error {
+	//	collectro.Run(ctx)
+	//	return nil
+	//})
 
 	err = wg.Wait()
 	log.Debug("termination", zap.Error(err))
