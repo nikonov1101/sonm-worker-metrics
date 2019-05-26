@@ -15,7 +15,7 @@ import (
 )
 
 type Config struct {
-	Addresses []*sonm.EthAddress `yaml:"addresses"`
+	Addresses []common.Address `yaml:"addresses"`
 }
 
 type walletRow struct {
@@ -65,8 +65,8 @@ func (m *walletPlugin) once(ctx context.Context) {
 	}
 }
 
-func (m *walletPlugin) collect(ctx context.Context, addr *sonm.EthAddress) (*walletRow, error) {
-	row := &walletRow{Addr: addr.Unwrap()}
+func (m *walletPlugin) collect(ctx context.Context, addr common.Address) (*walletRow, error) {
+	row := &walletRow{Addr: addr}
 	wg, ctx := errgroup.WithContext(ctx)
 
 	// token balance
@@ -74,9 +74,9 @@ func (m *walletPlugin) collect(ctx context.Context, addr *sonm.EthAddress) (*wal
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 
-		bal, err := m.bta.BalanceOf(ctx, addr.Unwrap())
+		bal, err := m.bta.BalanceOf(ctx, addr)
 		if err != nil {
-			m.log.Warn("failed to get balance", zap.Error(err), zap.Stringer("addr", addr.Unwrap()))
+			m.log.Warn("failed to get balance", zap.Error(err), zap.Stringer("addr", addr))
 			return err
 		}
 
@@ -96,10 +96,10 @@ func (m *walletPlugin) collect(ctx context.Context, addr *sonm.EthAddress) (*wal
 			Status:    sonm.DealStatus_DEAL_ACCEPTED,
 			Limit:     500,
 			WithCount: true,
-			AnyUserID: addr,
+			AnyUserID: sonm.NewEthAddress(addr),
 		})
 		if err != nil {
-			m.log.Warn("failed to get deals list", zap.Error(err), zap.Stringer("addr", addr.Unwrap()))
+			m.log.Warn("failed to get deals list", zap.Error(err), zap.Stringer("addr", addr))
 			return err
 		}
 
@@ -117,10 +117,10 @@ func (m *walletPlugin) collect(ctx context.Context, addr *sonm.EthAddress) (*wal
 			Type:      sonm.OrderType_ANY,
 			Limit:     500,
 			WithCount: true,
-			AuthorID:  addr,
+			AuthorID:  sonm.NewEthAddress(addr),
 		})
 		if err != nil {
-			m.log.Warn("failed to get orders list", zap.Error(err), zap.Stringer("addr", addr.Unwrap()))
+			m.log.Warn("failed to get orders list", zap.Error(err), zap.Stringer("addr", addr))
 			return err
 		}
 

@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sonm-io/core/blockchain"
 	sonm "github.com/sonm-io/core/proto"
+	"github.com/sonm-io/monitoring/config"
 	"github.com/sonm-io/monitoring/plugins/wallet"
 
 	"github.com/jinzhu/configor"
@@ -49,16 +49,23 @@ func main() {
 		panic(err)
 	}
 
-	cfg := Config{}
-	err = configor.Load(&cfg, configPath)
-	if err != nil {
+	/* load config */
+	cfg := config.Config{}
+	cfgr := configor.New(&configor.Config{
+		Debug:   true,
+		Verbose: true,
+		// ErrorOnUnmatchedKeys: false,
+	})
+
+	if err := cfgr.Load(&cfg, configPath); err != nil {
 		log.Fatal("failed to load config file", zap.String("path", configPath), zap.Error(err))
 		return
 	}
 
-	pkey, err := cfg.Eth.LoadKey()
+	/* init services dependencies */
+	pkey, err := cfg.Services.Ethereum.LoadKey()
 	if err != nil {
-		log.Fatal("failed to load ethereum key", zap.String("keystore", cfg.Eth.Keystore), zap.Error(err))
+		log.Fatal("failed to load ethereum key", zap.String("keystore", cfg.Services.Ethereum.Keystore), zap.Error(err))
 		return
 	}
 
@@ -74,51 +81,42 @@ func main() {
 	defer rot.Close()
 	creds := xgrpc.NewTransportCredentials(tlsConfig)
 
-	inf, err := influx.NewInfluxClient(&cfg.Influx)
+	inf, err := influx.NewInfluxClient(&cfg.Services.Influx)
 	if err != nil {
 		log.Fatal("failed to create exporter instance", zap.Error(err))
 		return
 	}
 	defer inf.Close()
 
-	// aggregator reading data from InfluxDB and aggregating
-	// various metrics
-	aggr := aggregator.NewAggregator(log, inf)
-
-	// discovery service is obtaining info about online peers in SONM network
-	disco, err := discovery.NewRendezvousDiscovery(ctx, log, creds, cfg.NPP)
-	if err != nil {
-		log.Fatal("failed to create discovery service", zap.Error(err))
-	}
-
-	// collector querying peers for various hardware (and software in closest future) metrics
-	collectro, err := collector.NewMetricsCollector(log, pkey, creds, cfg.NPP, cfg.Collector, inf, disco)
-	if err != nil {
-		log.Fatal("failed to create collector service", zap.Error(err))
-	}
-
-	// todo: refactor configuration after tests
-	//// ===
-
-	// blockchain.WithConfig(&blockchain.Config{})
 	bc, err := blockchain.NewAPI(ctx)
 	if err != nil {
 		log.Fatal("failed to create blockchain API client", zap.Error(err))
 	}
 
-	dwhCC, err := xgrpc.NewClient(ctx, "0xadffcac607a0a1b583c489977eae413a62d4bc73@dwh.livenet.sonm.com:15021", creds)
+	dwhCC, err := xgrpc.NewClient(ctx, cfg.Services.DWH.Endpoint, creds)
 	if err != nil {
 		log.Fatal("failed to create DWH API client", zap.Error(err))
 	}
 
-	wcfg := &wallet.Config{
-		Addresses: []*sonm.EthAddress{
-			sonm.NewEthAddress(common.HexToAddress("0x6e81048e5c210b3e9c2a5e9b473f97f8655acfd6")),
-			sonm.NewEthAddress(common.HexToAddress("0x12371ca2f302179b421fbec2d3fa103626ee9338")),
-			sonm.NewEthAddress(common.HexToAddress("0x417c92fbd944b125a578848de44a4fd9132e0911")),
-		},
+	/* init plugins */
+
+	// aggregator reading data from InfluxDB and aggregating
+	// various metrics
+	aggr := aggregator.NewAggregator(log, inf)
+
+	// discovery service is obtaining info about online peers in SONM network
+	disco, err := discovery.NewRendezvousDiscovery(ctx, log, creds, cfg.Services.NPP)
+	if err != nil {
+		log.Fatal("failed to create discovery service", zap.Error(err))
 	}
-	wp := wallet.NewWalletPlugin(wcfg, log, bc.SidechainToken(), sonm.NewDWHClient(dwhCC))
+
+	// collector querying peers for various hardware (and software in closest future) metrics
+	collectro, err := collector.NewMetricsCollector(log, pkey, creds, cfg.Services.NPP, cfg.Plugins.Collector, inf, disco)
+	if err != nil {
+		log.Fatal("failed to create collector service", zap.Error(err))
+	}
+
+	wp := wallet.NewWalletPlugin(&cfg.Plugins.Wallet, log, bc.SidechainToken(), sonm.NewDWHClient(dwhCC))
 
 	wg, ctx := errgroup.WithContext(ctx)
 	wg.Go(func() error {
@@ -131,17 +129,14 @@ func main() {
 		wp.Run(ctx)
 		return nil
 	})
-
-	_ = aggr
-	_ = collectro
-	//wg.Go(func() error {
-	//	aggr.Run(ctx)
-	//	return nil
-	//})
-	//wg.Go(func() error {
-	//	collectro.Run(ctx)
-	//	return nil
-	//})
+	wg.Go(func() error {
+		aggr.Run(ctx)
+		return nil
+	})
+	wg.Go(func() error {
+		collectro.Run(ctx)
+		return nil
+	})
 
 	err = wg.Wait()
 	log.Debug("termination", zap.Error(err))
