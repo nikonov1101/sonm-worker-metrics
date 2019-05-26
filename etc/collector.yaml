@@ -1,40 +1,62 @@
-# Exported settings describes connection parameters for influxdb
-influx:
-  # URL of influxdb instance
-  db_addr: "http://localhost:8086"
-  # name of the database to store metrics
-  db_name: "sonm"
+services:
+  # Influx settings describes connection parameters for influxdb
+  influx:
+    # URL of influxdb instance
+    db_addr: "http://localhost:8086"
+    # name of the database to store metrics
+    db_name: "sonm"
 
-collector:
-  # attach logger to npp dialer.
-  # heavily increases the number of log lines per connect,
-  # but allows to observe how does NPP works.
-  verbose_dialer_logs: false
-  # serialize dialer metrics and save into file in /tmp/,
-  # it may help to debug various metrics calculation bugs.
-  save_dialer_metrics_to_file: false
+  # Settings for Ethereum keys
+  ethereum: &ethereum
+    # path to keystore
+    key_store: "./keys"
+    # passphrase for keystore
+    pass_phrase: "any"
 
-# Settings for Ethereum keys
-ethereum: &ethereum
-  # path to keystore
-  key_store: "./keys"
-  # passphrase for keystore
-  pass_phrase: "any"
+  # DWH service settings
+  dwh:
+    # marketplace gRPC endpoint, required
+    endpoint: "0xadffcac607a0a1b583c489977eae413a62d4bc73@dwh.livenet.sonm.com:15021"
 
-# NAT punching settings.
-npp: &npp
-  # Rendezvous settings.
-  rendezvous:
-    # Known rendezvous endpoints.
-    #
-    # Must be in ETHAddress@Host:Port format.
-    endpoints:
-    - 0x5b7d6516fad04e10db726933bcd75447fd7b4b17@rendezvous.livenet.sonm.com:14099
-  # Relay settings.
-  relay:
-    # Known relay endpoints.
-    #
-    # The format is Host:Port.
-    # Can be omitted, meaning that relaying is disabled.
-    endpoints:
-    - relay.livenet.sonm.com:12240
+  # NAT punching settings.
+  npp: &npp
+    # Rendezvous settings.
+    rendezvous:
+      # Known rendezvous endpoints.
+      #
+      # Must be in ETHAddress@Host:Port format.
+      endpoints:
+        - 0x5b7d6516fad04e10db726933bcd75447fd7b4b17@rendezvous.livenet.sonm.com:14099
+    # Relay settings.
+    relay:
+      # Known relay endpoints.
+      #
+      # The format is Host:Port.
+      # Can be omitted, meaning that relaying is disabled.
+      endpoints:
+        - relay.livenet.sonm.com:12240
+
+
+plugins:
+  # collector gathers various info
+  # about peers state in the SONM network, such as:
+  # online peers count
+  # worker-exposed metrics (hardware info)
+  # NPP connectivity
+  collector:
+    # attach logger to npp dialer.
+    # heavily increases the number of log lines per connect,
+    # but allows to observe how does NPP works.
+    verbose_dialer_logs: false
+    # serialize dialer metrics and save into file in /tmp/,
+    # it may help to debug various metrics calculation bugs.
+    save_dialer_metrics_to_file: false
+
+  # wallet plugin gather info about the given wallet(s):
+  # - balance on Sidechain
+  # - active deals and orders count
+  wallet:
+    addresses:
+      - "0x6e81048e5c210b3e9c2a5e9b473f97f8655acfd6"
+      - "0x12371ca2f302179b421fbec2d3fa103626ee9338"
+      - "0x417c92fbd944b125a578848de44a4fd9132e0911"
